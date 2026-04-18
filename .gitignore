@@ -4,6 +4,7 @@ node_modules
 # next
 .next
 out
+tsconfig.tsbuildinfo
 
 # env
 .env
