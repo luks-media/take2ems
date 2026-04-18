@@ -1,0 +1,17 @@
+.next
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.md
+!DEPLOY.md
+prisma/*.db
+prisma/*.db-journal
+prisma/data
+prisma/verify_fk.db
+prisma/_verify.db
+coverage
+.DS_Store

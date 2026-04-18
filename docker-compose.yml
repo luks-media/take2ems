@@ -1,0 +1,20 @@
+# EMS v1.0 — Beispiel-Stack für eigene Domain / VPS
+# 1. Kopiere .env.example → .env und setze Secrets + APP_URL (https://deine-domain.de)
+# 2. docker compose up -d --build
+# 3. Reverse-Proxy (Caddy/Nginx) mit TLS auf Port 3000 terminieren
+
+services:
+  ems:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:./data/ems.db
+    volumes:
+      - ems_sqlite:/app/prisma/data
+
+volumes:
+  ems_sqlite:

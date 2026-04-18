@@ -1,0 +1,39 @@
+# dependencies
+node_modules
+
+# next
+.next
+out
+
+# env
+.env
+.env.local
+.env.*.local
+
+# sqlite / prisma local data
+prisma/*.db
+prisma/*.db-journal
+prisma/data/
+prisma/*.backup-*
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+
+# IDE
+.idea
+.vscode
+*.code-workspace
+
+# test / verify artifacts
+prisma/verify_fk.db
+
+# scratch screenshots & ad-hoc test scripts (not shipped)
+/*.png
+test-button*.js
+test-create-action.js
+test-full-submit.js
+test-puppeteer.js
+test-screenshot*.js
+test-submit.js

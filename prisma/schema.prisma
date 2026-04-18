@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Equipment {
+  id            String       @id @default(cuid())
+  equipmentCode String       @unique
+  name          String
+  description   String?
+  /// Dauerhafte interne Notiz zum Artikel (unabhängig von Ausleihen)
+  internalNote  String?
+  serialNumber  String?
+  category      String
+  locationId    String?
+  location      Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  quantity      Int          @default(1)
+  purchasePrice Float?
+  dailyRate     Float        @default(0)
+  status        String       @default("AVAILABLE") // AVAILABLE, IN_USE, MAINTENANCE, BROKEN
+  /// Gleiche ID: gehört zu einer Ausleih-Empfehlungsgruppe (nur Hinweis in der UI, keine Pflichtbuchung).
+  rentalBundleId String?
+  owners        User[]       @relation("EquipmentOwners")
+  ownerships    EquipmentOwnership[]
+  ownershipLots EquipmentOwnershipLot[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  rentalItems   RentalItem[]
+  instances     EquipmentInstance[]
+
+  @@index([rentalBundleId])
+}
+
+model EquipmentInstance {
+  id            String       @id @default(cuid())
+  equipmentId   String
+  equipment     Equipment    @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  instanceCode  String       @unique // e.g. 1-0001-01
+  serialNumber  String?
+  status        String       @default("AVAILABLE") // AVAILABLE, IN_USE, MAINTENANCE, BROKEN
+  /// Kurznotiz zum Defekt (sinnvoll bei status BROKEN)
+  defectNote    String?
+  rentalItems   RentalItem[] @relation("RentedInstances")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Location {
+  id        String      @id @default(cuid())
+  name      String
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment Equipment[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model User {
+  id        String      @id @default(cuid())
+  name      String
+  email     String      @unique
+  password  String?
+  role      String      @default("USER") // ADMIN, USER
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  rentals   Rental[]
+  equipment Equipment[] @relation("EquipmentOwners")
+  ownerships EquipmentOwnership[]
+  lotShares  EquipmentOwnershipLotShare[]
+  ownerShares RentalItemOwnerShare[]
+  locations Location[]
+}
+
+/// Gespeicherte Kunden / Projekte für Ausleihen und Autocomplete.
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  /// Ansprechpartner (Kontakt)
+  contactPerson String?
+  email     String?
+  phone     String?
+  notes     String?
+  /// Rechnungsadresse
+  invoiceCompany String?
+  invoiceStreet  String?
+  invoiceZip     String?
+  invoiceCity    String?
+  invoiceCountry String?
+  invoiceVatId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rentals   Rental[]
+
+  @@index([name])
+}
+
+model Rental {
+  id                    String       @id @default(cuid())
+  userId                String?
+  user                  User?        @relation(fields: [userId], references: [id])
+  customerId            String?
+  customer              Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName          String?
+  startDate             DateTime
+  endDate               DateTime
+  totalDays             Int
+  totalPrice            Float
+  status                String       @default("PENDING") // PENDING, ACTIVE, RETURNED, CANCELLED, DRAFT (legacy: QUOTE)
+  googleCalendarEventId String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  items                 RentalItem[]
+}
+
+model RentalItem {
+  id          String    @id @default(cuid())
+  rentalId    String
+  rental      Rental    @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id])
+  quantity    Int       @default(1)
+  dailyRate   Float
+  totalPrice  Float
+  /// Freitext pro Position (z. B. Zubehör, Hinweise)
+  note        String?
+  instances   EquipmentInstance[] @relation("RentedInstances")
+  ownerShares RentalItemOwnerShare[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model EquipmentOwnership {
+  id          String    @id @default(cuid())
+  equipmentId String
+  ownerId     String
+  ownedUnits  Float
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([equipmentId, ownerId])
+}
+
+model EquipmentOwnershipLot {
+  id          String                    @id @default(cuid())
+  equipmentId String
+  label       String?
+  units       Int
+  equipment   Equipment                 @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  shares      EquipmentOwnershipLotShare[]
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+}
+
+model EquipmentOwnershipLotShare {
+  id        String                @id @default(cuid())
+  lotId     String
+  ownerId   String
+  fraction  Float
+  lot       EquipmentOwnershipLot @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  owner     User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@unique([lotId, ownerId])
+}
+
+model RentalItemOwnerShare {
+  id                 String     @id @default(cuid())
+  rentalItemId       String
+  ownerId            String
+  /// Anteil der vermieteten Menge (kann gebrochen sein, z. B. 0.5 bei 50 %-Los)
+  ownedUnitsAtRental Float
+  ownerFraction      Float
+  allocatedQuantity  Float
+  shareAmount        Float
+  rentalItem         RentalItem @relation(fields: [rentalItemId], references: [id], onDelete: Cascade)
+  owner              User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@unique([rentalItemId, ownerId])
+}
+
+/// Single-row app configuration (id must stay "singleton").
+model AppSettings {
+  id     String @id @default("singleton")
+  /// Shown under the PDF title (e.g. company name).
+  pdfCompanyLine   String?
+  /// Extra contact line in the PDF header area.
+  pdfContactLine   String?
+  /// Footer text on the rental checklist PDF.
+  pdfFooterLine    String?
+  /// Default status for newly created rentals: PENDING | ACTIVE
+  rentalDefaultStatus    String  @default("PENDING")
+  rentalDiscountAllowed  Boolean @default(true)
+  rentalMinDays          Int     @default(1)
+  /// When true and refresh token is set, rentals sync to Google Calendar.
+  googleCalendarSyncEnabled     Boolean @default(false)
+  /// Target calendar id (e.g. primary or xxxx@group.calendar.google.com). Empty = primary.
+  googleCalendarId              String?
+  /// AES-GCM encrypted refresh token (never store plaintext).
+  googleCalendarRefreshTokenEnc String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
