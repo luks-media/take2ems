@@ -9,10 +9,13 @@ ENV PUPPETEER_SKIP_DOWNLOAD=1
 RUN npm ci
 
 FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Small VPS: avoid OOM during next build
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN npx prisma generate
 RUN npm run build
 RUN npm prune --omit=dev
