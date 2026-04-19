@@ -18,9 +18,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN npx prisma generate
-RUN npm run build
+# .env is not in the image — Next may still run Prisma during "Collecting page data".
+# Use a throwaway SQLite DB for this stage only (see package.json build:docker).
+ENV DATABASE_URL=file:/tmp/ems-build.db
+ENV NODE_OPTIONS=--max-old-space-size=2048
+RUN npx prisma generate \
+  && npx prisma migrate deploy \
+  && npm run build:docker
 RUN npm prune --omit=dev
 
 FROM node:20-bookworm-slim AS runner

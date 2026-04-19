@@ -22,6 +22,8 @@ Google OAuth: Redirect-URI `{APP_URL}/api/google-calendar/callback` in der Googl
 docker compose up -d --build
 ```
 
+Falls `npm run build` im Image fehlschlägt: Im Builder gibt es **keine `.env`** — deshalb legt das `Dockerfile` eine **temporäre SQLite-Datei** unter `/tmp` an und führt **`prisma migrate deploy`** vor `next build` aus. Bei weiteren Fehlern: `tail -n 80 build.log` (oder die Docker-Build-Ausgabe) prüfen.
+
 Die App lauscht auf Port **3000**. Davor einen Reverse-Proxy (Caddy, Nginx, Traefik) mit TLS und Weiterleitung auf `127.0.0.1:3000` setzen.
 
 ## Ohne Docker
