@@ -1,8 +1,11 @@
 # EMS (take2ems) — production image
 FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 COPY package.json package-lock.json ./
+# postinstall runs prisma generate — schema must exist before npm ci
+COPY prisma ./prisma
+ENV PUPPETEER_SKIP_DOWNLOAD=1
 RUN npm ci
 
 FROM node:20-alpine AS builder
