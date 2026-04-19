@@ -410,7 +410,9 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      // Docker/Alpine: system Chromium (see Dockerfile). Locally: omit for bundled Chrome.
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     })
 
     const page = await browser.newPage()
