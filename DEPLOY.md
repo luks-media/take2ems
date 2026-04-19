@@ -24,6 +24,25 @@ docker compose up -d --build
 
 Falls `npm run build` im Image fehlschlägt: Im Builder gibt es **keine `.env`** — deshalb legt das `Dockerfile` eine **temporäre SQLite-Datei** unter `/tmp` an und führt **`prisma migrate deploy`** vor `next build` aus. Bei weiteren Fehlern: `tail -n 80 build.log` (oder die Docker-Build-Ausgabe) prüfen.
 
+### `failed to execute bake: signal: killed` (langer Build, dann Abbruch)
+
+Typisch: **zu wenig RAM** auf dem VPS — der Linux-Kernel beendet den Build (OOM). Gegenmaßnahmen:
+
+1. **Swap** anlegen (Beispiel 2 GB auf Ubuntu), dann Build erneut starten:
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+```
+
+Dauerhaft in `/etc/fstab` eintragen: `echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`
+
+2. **Mehr RAM** beim Provider wählen (z. B. 4 GB), oder das Image auf einem **stärkeren Rechner** bauen und per Registry auf den Server pushen.
+
+Im Repo ist `next.config` so eingestellt, dass Webpack beim Production-Build **weniger parallel** arbeitet (`parallelism: 1`), und das Dockerfile setzt einen **moderaten** Node-Heap — das entlastet kleine Maschinen.
+
 Die App lauscht auf Port **3000**. Davor einen Reverse-Proxy (Caddy, Nginx, Traefik) mit TLS und Weiterleitung auf `127.0.0.1:3000` setzen.
 
 ## Ohne Docker

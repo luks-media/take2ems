@@ -21,7 +21,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # .env is not in the image — Next may still run Prisma during "Collecting page data".
 # Use a throwaway SQLite DB for this stage only (see package.json build:docker).
 ENV DATABASE_URL=file:/tmp/ems-build.db
-ENV NODE_OPTIONS=--max-old-space-size=2048
+# Keep heap moderate — total RAM also needs room for webpack + OS (avoid OOM kill).
+ENV NODE_OPTIONS=--max-old-space-size=1536
 RUN npx prisma generate \
   && npx prisma migrate deploy \
   && npm run build:docker
