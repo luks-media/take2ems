@@ -2,7 +2,7 @@
 
 ## Voraussetzungen
 
-- Docker und Docker Compose (für den mitgelieferten Stack), oder Node 20 LTS für manuellen Betrieb
+- Docker und Docker Compose (für den mitgelieferten Stack; das Image basiert auf **Debian bookworm-slim**), oder Node 20 LTS für manuellen Betrieb
 - Öffentliche URL mit HTTPS (Reverse-Proxy empfohlen)
 
 ## Konfiguration

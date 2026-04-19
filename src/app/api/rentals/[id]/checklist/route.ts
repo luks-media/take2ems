@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import puppeteer from 'puppeteer'
+import type { Browser } from 'puppeteer'
 import { cookies } from 'next/headers'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
@@ -405,13 +405,14 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     footerLine: appSettings.pdfFooterLine,
   }
 
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null
+  const { default: puppeteer } = await import('puppeteer')
+  let browser: Browser | null = null
 
   try {
     browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      // Docker/Alpine: system Chromium (see Dockerfile). Locally: omit for bundled Chrome.
+      // Docker: system Chromium (see Dockerfile). Locally: omit for bundled Chrome.
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     })
 
