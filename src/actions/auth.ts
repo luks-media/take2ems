@@ -3,6 +3,7 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import prisma from '@/lib/prisma'
+import { normalizeEmail } from '@/lib/email'
 import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -25,7 +26,7 @@ export async function decrypt(input: string): Promise<any> {
 }
 
 export async function login(formData: FormData) {
-  const email = formData.get('email') as string
+  const email = normalizeEmail(String(formData.get('email') ?? ''))
   const password = formData.get('password') as string
 
   console.log('Login attempt for:', email)
@@ -35,7 +36,15 @@ export async function login(formData: FormData) {
     return { error: 'E-Mail und Passwort sind erforderlich.' }
   }
 
-  const user = await prisma.user.findUnique({ where: { email } })
+  // SQLite: "=" ist case-sensitiv — Login trotzdem case-insensitiv.
+  const rows = await prisma.$queryRaw<
+    { id: string; email: string; password: string | null; role: string }[]
+  >`
+    SELECT id, email, password, role FROM User
+    WHERE lower(trim(email)) = ${email}
+    LIMIT 1
+  `
+  const user = rows[0]
 
   if (!user || !user.password) {
     console.log('User not found or no password')
@@ -50,16 +59,26 @@ export async function login(formData: FormData) {
   }
 
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000)
-  const session = await encrypt({ user: { id: user.id, email: user.email, role: user.role } })
-  
-  cookies().set('auth_session', session, { expires, httpOnly: true, sameSite: 'lax', path: '/' })
+  const session = await encrypt({
+    user: { id: user.id, email: user.email, role: user.role },
+  })
+  const secure = process.env.NODE_ENV === 'production'
+
+  cookies().set('auth_session', session, {
+    expires,
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    secure,
+  })
 
   console.log('Login successful for:', email)
   return { success: true }
 }
 
 export async function logout() {
-  cookies().set('auth_session', '', { expires: new Date(0), path: '/' })
+  const secure = process.env.NODE_ENV === 'production'
+  cookies().set('auth_session', '', { expires: new Date(0), path: '/', secure })
   redirect('/login')
 }
 

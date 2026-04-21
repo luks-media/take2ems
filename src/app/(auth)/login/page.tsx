@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { login } from '@/actions/auth'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -9,7 +8,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -25,8 +23,9 @@ export default function LoginPage() {
       setError(result.error)
       setIsLoading(false)
     } else {
-      router.push('/')
-      router.refresh()
+      // Full navigation so the next request always includes Set-Cookie from the server action
+      // (client router.push can race the cookie in production).
+      window.location.assign('/')
     }
   }
 

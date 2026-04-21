@@ -9,7 +9,8 @@
     "build": "next build",
     "build:docker": "next build --no-lint",
     "start": "next start",
-    "start:prod": "prisma migrate deploy && next start",
+    "start:prod": "prisma migrate deploy && prisma db seed && next start",
+    "admin:upsert": "node prisma/upsert-admin.mjs",
     "lint": "next lint",
     "test:owner-shares": "tsx test-owner-share-split.ts"
   },
@@ -56,5 +57,8 @@
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
     "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.mjs"
   }
 }

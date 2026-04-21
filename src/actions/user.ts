@@ -1,6 +1,7 @@
 'use server'
 
 import prisma from '@/lib/prisma'
+import { normalizeEmail } from '@/lib/email'
 import { revalidatePath } from 'next/cache'
 import bcrypt from 'bcryptjs'
 
@@ -35,11 +36,12 @@ export async function getUserById(id: string) {
 
 export async function createUser(data: { name: string, email: string, password?: string, role: string }) {
   const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : undefined
+  const email = normalizeEmail(data.email)
 
   const user = await prisma.user.create({
     data: {
       name: data.name,
-      email: data.email,
+      email,
       password: hashedPassword,
       role: data.role,
     }
@@ -65,7 +67,7 @@ export async function updateUser(
     password?: string
   } = {
     name: data.name,
-    email: data.email,
+    email: normalizeEmail(data.email),
     role: data.role,
   }
 
