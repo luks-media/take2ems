@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  typescript: {
+    // Docker deploy: skip typecheck in image build to reduce memory pressure.
+    // Keep local/CI type checks separately.
+    ignoreBuildErrors: true,
+  },
   experimental: {
     // Avoid bundling native-heavy packages (helps Alpine `next build` + slimmer traces).
     serverComponentsExternalPackages: ['puppeteer', '@prisma/client'],
