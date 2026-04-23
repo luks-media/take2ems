@@ -2,12 +2,13 @@ import { randomBytes } from 'crypto'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getAppOrigin } from '@/lib/app-origin'
-import { getSessionUserFromCookies } from '@/lib/session'
+import { requireAdmin } from '@/lib/session'
 import { createOAuth2Client, getGcalStateCookieName, GCAL_SCOPES } from '@/lib/google-calendar/oauth'
 
 export async function GET() {
-  const user = await getSessionUserFromCookies()
-  if (!user || user.role !== 'ADMIN') {
+  try {
+    await requireAdmin()
+  } catch {
     return NextResponse.redirect(new URL('/login', getAppOrigin()))
   }
 

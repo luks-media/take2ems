@@ -4,11 +4,30 @@ import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Download, Upload, Database, Loader2 } from 'lucide-react'
 
-export function DatabaseActions() {
+export function DatabaseActions({ isAdmin }: { isAdmin: boolean }) {
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const adminOnlyMessage = 'Nur Administratoren dürfen diese Aktion ausführen.'
+
+  const handleAdminOnlyAttempt = () => {
+    if (!isAdmin) {
+      alert(adminOnlyMessage)
+      return true
+    }
+    return false
+  }
+
+  const handleExport = () => {
+    if (handleAdminOnlyAttempt()) return
+    window.location.href = '/api/export-db'
+  }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (handleAdminOnlyAttempt()) {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -64,12 +83,19 @@ export function DatabaseActions() {
             </p>
           </div>
           <div className="pt-2 w-full">
-            <a href="/api/export-db" download className="block w-full">
-              <Button className="w-full flex items-center justify-center gap-2">
-                <Download className="w-4 h-4" />
-                Backup herunterladen
-              </Button>
-            </a>
+            <Button
+              className="w-full flex items-center justify-center gap-2"
+              variant={isAdmin ? 'default' : 'outline'}
+              onClick={handleExport}
+            >
+              <Download className="w-4 h-4" />
+              Backup herunterladen
+            </Button>
+            {!isAdmin && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Nur Admins können Datenbank-Backups exportieren.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -96,9 +122,12 @@ export function DatabaseActions() {
               id="db-upload"
             />
             <Button
-              variant="secondary"
+              variant={isAdmin ? 'secondary' : 'outline'}
               className="w-full flex items-center justify-center gap-2"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                if (handleAdminOnlyAttempt()) return
+                fileInputRef.current?.click()
+              }}
               disabled={isUploading}
             >
               {isUploading ? (
@@ -108,6 +137,11 @@ export function DatabaseActions() {
               )}
               {isUploading ? 'Wird hochgeladen...' : 'Backup hochladen'}
             </Button>
+            {!isAdmin && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Nur Admins können Datenbank-Backups importieren.
+              </p>
+            )}
           </div>
         </div>
       </div>

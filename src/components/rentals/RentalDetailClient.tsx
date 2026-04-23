@@ -97,7 +97,13 @@ type RentalWithItems = Rental & {
   })[]
 }
 
-export function RentalDetailClient({ rental }: { rental: RentalWithItems }) {
+export function RentalDetailClient({
+  rental,
+  canDelete,
+}: {
+  rental: RentalWithItems
+  canDelete: boolean
+}) {
   const router = useRouter()
   const [isUpdating, setIsUpdating] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -111,6 +117,7 @@ export function RentalDetailClient({ rental }: { rental: RentalWithItems }) {
   const [custSuggestOpen, setCustSuggestOpen] = useState(false)
   const [custSaving, setCustSaving] = useState(false)
   const [custFormErr, setCustFormErr] = useState<string | null>(null)
+  const deleteDeniedMessage = 'Nur Administratoren oder der Ausleiher dürfen löschen.'
 
   function openCustomerEdit() {
     setCustName(rental.customerName || '')
@@ -437,7 +444,18 @@ export function RentalDetailClient({ rental }: { rental: RentalWithItems }) {
             PDF Ausleihliste
           </a>
         </Button>
-        <Button variant="destructive" onClick={handleDelete} disabled={isDeleting || isUpdating}>
+        <Button
+          variant={canDelete ? 'destructive' : 'outline'}
+          className={!canDelete ? 'opacity-60' : undefined}
+          onClick={() => {
+            if (!canDelete) {
+              alert(deleteDeniedMessage)
+              return
+            }
+            void handleDelete()
+          }}
+          disabled={isDeleting || isUpdating}
+        >
           {isDeleting ? 'Löschen...' : 'Ausleihe löschen'}
         </Button>
       </div>

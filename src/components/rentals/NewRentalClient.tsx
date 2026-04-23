@@ -52,6 +52,7 @@ interface Props {
   activeBlocks: { equipmentId: string; startDate: string; endDate: string; quantity: number }[]
   borrowerChoices: BorrowerChoice[]
   defaultBorrowerId: string | null
+  canSelectBorrower: boolean
   appPrefs: NewRentalAppPrefs
 }
 
@@ -73,6 +74,7 @@ export default function NewRentalClient({
   activeBlocks,
   borrowerChoices,
   defaultBorrowerId,
+  canSelectBorrower,
   appPrefs,
 }: Props) {
   const router = useRouter()
@@ -363,6 +365,9 @@ export default function NewRentalClient({
       ? 'Kein Bearbeiter'
       : borrowerChoices.find((u) => u.id === borrowerUserId)?.name ?? 'Bearbeiter'
 
+  const fixedBorrower =
+    borrowerChoices.find((u) => u.id === defaultBorrowerId) || borrowerChoices[0] || null
+
   const detailsSummaryLine = !hasSelectedRange
     ? 'Zeitraum wählen, um Verfügbarkeiten zu sehen …'
     : totalDays < appPrefs.minRentalDays
@@ -442,7 +447,11 @@ export default function NewRentalClient({
       await createRental({
         customerId: selectedCustomerId ?? undefined,
         customerName: customerName || undefined,
-        borrowerUserId: borrowerUserId === BORROWER_NONE ? null : borrowerUserId,
+        borrowerUserId: canSelectBorrower
+          ? borrowerUserId === BORROWER_NONE
+            ? null
+            : borrowerUserId
+          : defaultBorrowerId,
         startDate: dateRange.from,
         endDate: dateRange.to,
         totalDays,
@@ -565,23 +574,36 @@ export default function NewRentalClient({
 
           <div className="grid gap-2">
             <Label htmlFor="borrower-user">Bearbeiter (Nutzer)</Label>
-            <Select value={borrowerUserId} onValueChange={setBorrowerUserId}>
-              <SelectTrigger id="borrower-user" className="bg-background">
-                <SelectValue placeholder="Nutzer wählen" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={BORROWER_NONE}>Kein Bearbeiter</SelectItem>
-                {borrowerChoices.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name} ({u.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Steuert Eigentümer-Anteile und den virtuellen Kontostand. Ohne Auswahl keine interne Zuordnung (Kunde /
-              Projekt reicht dann nur als Freitext).
-            </p>
+            {canSelectBorrower ? (
+              <>
+                <Select value={borrowerUserId} onValueChange={setBorrowerUserId}>
+                  <SelectTrigger id="borrower-user" className="bg-background">
+                    <SelectValue placeholder="Nutzer wählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={BORROWER_NONE}>Kein Bearbeiter</SelectItem>
+                    {borrowerChoices.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name} ({u.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Steuert Eigentümer-Anteile und den virtuellen Kontostand. Ohne Auswahl keine interne Zuordnung (Kunde /
+                  Projekt reicht dann nur als Freitext).
+                </p>
+              </>
+            ) : (
+              <>
+                <div
+                  id="borrower-user"
+                  className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-foreground"
+                >
+                  {fixedBorrower ? `${fixedBorrower.name} (${fixedBorrower.email})` : 'Eigener Account'}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="grid gap-2">

@@ -6,6 +6,8 @@ import { UserLocationsDialog } from '@/components/users/UserLocationsDialog'
 import { UserProfileDialog } from '@/components/users/UserProfileDialog'
 import { UserAssetsDialog } from '@/components/users/UserAssetsDialog'
 import { DirectoryViewToggle } from '@/components/layout/DirectoryViewToggle'
+import { getSessionUserFromCookies } from '@/lib/session'
+import { AdminOnlyButton } from '@/components/common/AdminOnlyButton'
 import {
   Table,
   TableBody,
@@ -28,10 +30,16 @@ export default async function UsersPage({
 }) {
   const view = resolveViewMode(searchParams.view, 'list')
 
-  const [users, balanceByUser] = await Promise.all([getUsers(), getUserBalancesMap()])
+  const [users, balanceByUser, sessionUser] = await Promise.all([
+    getUsers(),
+    getUserBalancesMap(),
+    getSessionUserFromCookies(),
+  ])
+  const isAdmin = sessionUser?.role === 'ADMIN' || sessionUser?.role === 'SUPER_ADMIN'
+  const isSuperAdmin = sessionUser?.role === 'SUPER_ADMIN'
   const eur = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
-  const adminCount = users.filter((u) => u.role === 'ADMIN').length
-  const memberCount = users.filter((u) => u.role !== 'ADMIN').length
+  const adminCount = users.filter((u) => u.role === 'ADMIN' || u.role === 'SUPER_ADMIN').length
+  const memberCount = users.filter((u) => u.role === 'USER').length
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto space-y-4 p-8 pt-6">
@@ -39,7 +47,11 @@ export default async function UsersPage({
         <h2 className="text-3xl font-bold tracking-tight">Benutzer</h2>
         <div className="flex flex-wrap items-center gap-3">
           <DirectoryViewToggle defaultMode="list" />
-          <NewUserDialog />
+          {isAdmin ? (
+            <NewUserDialog canManagePrivilegedRoles={isSuperAdmin} />
+          ) : (
+            <AdminOnlyButton label="Neuen Benutzer anlegen" className="opacity-60" />
+          )}
         </div>
       </div>
 
@@ -86,7 +98,7 @@ export default async function UsersPage({
                   <CardDescription className="break-all text-left">{user.email}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 space-y-3">
-                  <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
+                  <Badge variant={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="text-muted-foreground">Saldo</span>
                     <span className={`font-semibold tabular-nums ${saldoCls}`}>
@@ -103,8 +115,18 @@ export default async function UsersPage({
                   </p>
                 </CardContent>
                 <CardFooter className="flex flex-wrap justify-end gap-2 border-t pt-4">
-                  <UserLocationsDialog user={user} />
-                  <UserProfileDialog user={user} balance={balanceByUser[user.id]} />
+                  {isAdmin ? (
+                    <>
+                      <UserLocationsDialog user={user} />
+                      <UserProfileDialog
+                        user={user}
+                        balance={balanceByUser[user.id]}
+                        canManagePrivilegedRoles={isSuperAdmin}
+                      />
+                    </>
+                  ) : (
+                    <AdminOnlyButton label="Nur Admins" size="sm" className="opacity-60" />
+                  )}
                 </CardFooter>
               </Card>
             )
@@ -132,7 +154,7 @@ export default async function UsersPage({
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
+                    <Badge variant={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
                     {(() => {
@@ -155,8 +177,18 @@ export default async function UsersPage({
                   <TableCell>{format(new Date(user.createdAt), 'dd.MM.yyyy')}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
-                      <UserLocationsDialog user={user} />
-                      <UserProfileDialog user={user} balance={balanceByUser[user.id]} />
+                      {isAdmin ? (
+                        <>
+                          <UserLocationsDialog user={user} />
+                          <UserProfileDialog
+                            user={user}
+                            balance={balanceByUser[user.id]}
+                            canManagePrivilegedRoles={isSuperAdmin}
+                          />
+                        </>
+                      ) : (
+                        <AdminOnlyButton label="Nur Admins" size="sm" className="opacity-60" />
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

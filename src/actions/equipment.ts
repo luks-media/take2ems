@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache'
+import { requireAdmin, requireSessionUser } from '@/lib/session'
 
 /** Bundles mit weniger als zwei Mitgliedern werden aufgelöst (keine sinnvolle Empfehlungsgruppe). */
 async function normalizeSingletonRentalBundles(
@@ -157,6 +158,8 @@ export async function createEquipment(data: {
   ownershipLots?: OwnershipLotInput[]
   ownerShares?: { ownerId: string; ownedUnits: number }[]
 }) {
+  await requireSessionUser()
+
   const quantity = data.quantity || 1
   const ownerUnitShares = data.ownerUnitShares || []
   const ownershipGroups = data.ownershipGroups || []
@@ -262,6 +265,7 @@ export async function createEquipment(data: {
 }
 
 export async function getEquipment() {
+  await requireSessionUser()
   noStore()
   return prisma.equipment.findMany({
     include: {
@@ -275,6 +279,7 @@ export async function getEquipment() {
 }
 
 export async function getEquipmentById(id: string) {
+  await requireSessionUser()
   const equipment = await prisma.equipment.findUnique({
     where: { id },
     include: {
@@ -301,6 +306,7 @@ export async function getEquipmentById(id: string) {
 
 /** Für Mehrfachauswahl Ausleih-Empfehlungen (ohne schwere Relationen). */
 export async function getEquipmentBundlePeerOptions() {
+  await requireSessionUser()
   return prisma.equipment.findMany({
     select: { id: true, name: true, equipmentCode: true },
     orderBy: { equipmentCode: 'asc' },
@@ -315,6 +321,8 @@ export async function updateEquipmentRentalBundle(
   equipmentId: string,
   linkedEquipmentIds: string[]
 ) {
+  await requireSessionUser()
+
   const uniqueLinked = Array.from(
     new Set(linkedEquipmentIds.filter((id) => typeof id === 'string' && id.length > 0 && id !== equipmentId))
   )
@@ -418,6 +426,8 @@ export async function setEquipmentInstanceDefectState(input: {
   defective: boolean
   note?: string | null
 }) {
+  await requireSessionUser()
+
   try {
     const note =
       input.note === null || input.note === undefined
@@ -484,6 +494,8 @@ export async function setEquipmentInstanceDefectState(input: {
 
 /** Legt fehlende EquipmentInstance-Zeilen an (z. B. ältere Daten), bis quantity erreicht ist. */
 export async function ensureEquipmentInstances(equipmentId: string) {
+  await requireSessionUser()
+
   try {
     const equipment = await prisma.equipment.findUnique({
       where: { id: equipmentId },
@@ -552,6 +564,8 @@ export async function updateEquipment(
     ownerShares: { ownerId: string; ownedUnits: number }[]
   }>
 ) {
+  await requireSessionUser()
+
   const { ownerIds, ownerShares, ownershipLots, ownerUnitShares, ownershipGroups, ...rest } = data;
   const current = await prisma.equipment.findUnique({
     where: { id },
@@ -705,6 +719,8 @@ export async function updateEquipment(
 }
 
 export async function deleteEquipment(id: string) {
+  await requireAdmin()
+
   try {
     const inUse = await prisma.rentalItem.findFirst({
       where: { equipmentId: id }

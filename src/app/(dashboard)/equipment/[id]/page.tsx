@@ -6,14 +6,17 @@ import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
+import { getSessionUserFromCookies } from '@/lib/session'
 
 export default async function EditEquipmentPage({ params }: { params: { id: string } }) {
-  const [equipment, locations, users, bundlePeerOptions] = await Promise.all([
+  const [equipment, locations, users, bundlePeerOptions, sessionUser] = await Promise.all([
     getEquipmentById(params.id),
     getLocations(),
     getUsers(),
     getEquipmentBundlePeerOptions(),
+    getSessionUserFromCookies(),
   ])
+  const canDelete = sessionUser?.role === 'ADMIN' || sessionUser?.role === 'SUPER_ADMIN'
 
   if (!equipment) {
     notFound()
@@ -36,6 +39,7 @@ export default async function EditEquipmentPage({ params }: { params: { id: stri
           locations={locations}
           users={users}
           bundlePeerOptions={bundlePeerOptions}
+          canDelete={canDelete}
         />
       </div>
     </div>

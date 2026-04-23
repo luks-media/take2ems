@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { User } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -28,9 +27,16 @@ import { UserBalanceSection } from '@/components/users/UserBalanceSection'
 export function UserProfileDialog({
   user,
   balance,
+  canManagePrivilegedRoles,
 }: {
-  user: User
+  user: {
+    id: string
+    name: string
+    email: string
+    role: string
+  }
   balance: UserBalanceDetail
+  canManagePrivilegedRoles: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -101,15 +107,20 @@ export function UserProfileDialog({
           </div>
           <div className="space-y-2">
             <Label>Rolle</Label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="USER">User</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
-              </SelectContent>
-            </Select>
+            {canManagePrivilegedRoles ? (
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USER">User</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="SUPER_ADMIN">Super-Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={role} readOnly />
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor={`password-${user.id}`}>Neues Passwort (optional)</Label>

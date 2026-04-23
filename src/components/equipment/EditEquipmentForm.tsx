@@ -73,12 +73,14 @@ export function EditEquipmentForm({
   users,
   locations,
   bundlePeerOptions,
+  canDelete,
   dismissOnDone,
 }: {
   equipment: EquipmentWithOwners
   users: User[]
   locations: Location[]
   bundlePeerOptions: EquipmentBundlePeerOption[]
+  canDelete: boolean
   /** Gesetzt im Dialog: nach Speichern/Löschen/Abbrechen Schließen statt zur Liste navigieren (inkl. router.refresh bei Mutation). */
   dismissOnDone?: () => void
 }) {
@@ -90,6 +92,7 @@ export function EditEquipmentForm({
   const [recommendationSectionOpen, setRecommendationSectionOpen] = useState(true)
   const [recommendationPeerSearch, setRecommendationPeerSearch] = useState('')
   const [recommendationsBundleTouched, setRecommendationsBundleTouched] = useState(false)
+  const adminOnlyMessage = 'Nur Administratoren dürfen diese Aktion ausführen.'
 
   useEffect(() => {
     setBundleLinkedIds([])
@@ -676,10 +679,17 @@ export function EditEquipmentForm({
         </div>
 
         <div className="flex justify-between items-center pt-4 border-t">
-          <Button 
-            type="button" 
-            variant="destructive" 
-            onClick={handleDelete}
+          <Button
+            type="button"
+            variant={canDelete ? 'destructive' : 'outline'}
+            className={!canDelete ? 'opacity-60' : undefined}
+            onClick={() => {
+              if (!canDelete) {
+                alert(adminOnlyMessage)
+                return
+              }
+              void handleDelete()
+            }}
             disabled={isDeleting || isSaving}
           >
             {isDeleting ? 'Löschen...' : 'Löschen'}

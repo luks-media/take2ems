@@ -1,10 +1,19 @@
 import { NextResponse } from 'next/server'
 import { readFileSync, existsSync } from 'fs'
 import { resolveSqliteDatabaseFilePath } from '@/lib/sqlite-path'
+import { requireAdmin } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  try {
+    await requireAdmin()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Keine Berechtigung.'
+    const status = message === 'Nicht angemeldet.' ? 401 : 403
+    return new NextResponse(message, { status })
+  }
+
   try {
     const filePath = resolveSqliteDatabaseFilePath()
     if (!filePath) {

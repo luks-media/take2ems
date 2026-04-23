@@ -1,25 +1,11 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import prisma from '@/lib/prisma'
-import { decrypt } from '@/actions/auth'
+import { requireAdmin } from '@/lib/session'
 import { sendTestEmail } from '@/lib/mail'
 
 const ALLOWED_RENTAL_DEFAULT_STATUS = new Set(['PENDING', 'ACTIVE'])
-
-async function requireAdmin() {
-  const token = cookies().get('auth_session')?.value
-  if (!token) {
-    throw new Error('Nicht angemeldet.')
-  }
-  const session = await decrypt(token)
-  const role = session?.user?.role
-  if (role !== 'ADMIN') {
-    throw new Error('Keine Berechtigung.')
-  }
-  return session.user
-}
 
 export async function sendSettingsTestEmail(formData: FormData) {
   await requireAdmin()

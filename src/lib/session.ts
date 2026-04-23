@@ -3,6 +3,7 @@ import { decrypt } from '@/actions/auth'
 import prisma from '@/lib/prisma'
 
 export type SessionUser = { id: string; email: string; role: string }
+export type UserRole = 'USER' | 'ADMIN' | 'SUPER_ADMIN'
 
 export type HeaderUserProfile = SessionUser & { name: string }
 
@@ -23,6 +24,38 @@ export async function getSessionUserFromCookies(): Promise<SessionUser | null> {
   } catch {
     return null
   }
+}
+
+export async function requireSessionUser(): Promise<SessionUser> {
+  const user = await getSessionUserFromCookies()
+  if (!user) {
+    throw new Error('Nicht angemeldet.')
+  }
+  return user
+}
+
+export function isAdminRole(role: string): boolean {
+  return role === 'ADMIN' || role === 'SUPER_ADMIN'
+}
+
+export function isSuperAdminRole(role: string): boolean {
+  return role === 'SUPER_ADMIN'
+}
+
+export async function requireAdmin(): Promise<SessionUser> {
+  const user = await requireSessionUser()
+  if (!isAdminRole(user.role)) {
+    throw new Error('Keine Berechtigung.')
+  }
+  return user
+}
+
+export async function requireSuperAdmin(): Promise<SessionUser> {
+  const user = await requireSessionUser()
+  if (!isSuperAdminRole(user.role)) {
+    throw new Error('Keine Berechtigung.')
+  }
+  return user
 }
 
 export async function getHeaderUserProfile(): Promise<HeaderUserProfile | null> {

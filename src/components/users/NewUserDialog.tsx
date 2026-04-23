@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { createUser } from '@/actions/user'
 
-export function NewUserDialog() {
+export function NewUserDialog({ canManagePrivilegedRoles }: { canManagePrivilegedRoles: boolean }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -80,7 +80,8 @@ export function NewUserDialog() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="USER">User</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
+                {canManagePrivilegedRoles && <SelectItem value="ADMIN">Admin</SelectItem>}
+                {canManagePrivilegedRoles && <SelectItem value="SUPER_ADMIN">Super-Admin</SelectItem>}
               </SelectContent>
             </Select>
           </div>

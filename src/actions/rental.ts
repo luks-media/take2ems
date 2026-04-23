@@ -5,8 +5,7 @@ import prisma from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { buildOwnerSharesFromLots } from '@/lib/owner-share'
 import { isNonBindingRentalStatus, rentalStatusReservesInventory } from '@/lib/rental-statuses'
-import { cookies } from 'next/headers'
-import { decrypt } from '@/actions/auth'
+import { requireAdmin, requireSessionUser } from '@/lib/session'
 
 const CREATE_RENTAL_STATUSES = new Set(['PENDING', 'ACTIVE', 'DRAFT'])
 
@@ -39,18 +38,18 @@ export async function createRental(data: {
   status?: string
   items: { equipmentId: string; quantity: number; dailyRate: number; totalPrice: number; note?: string | null }[]
 }) {
+  const sessionUser = await requireSessionUser()
+
   let resolvedBorrowerId: string | null | undefined
-  if (data.borrowerUserId === null) {
+  if (sessionUser.role !== 'ADMIN' && sessionUser.role !== 'SUPER_ADMIN') {
+    // USER darf nur sich selbst als Bearbeiter setzen.
+    resolvedBorrowerId = sessionUser.id
+  } else if (data.borrowerUserId === null) {
     resolvedBorrowerId = null
   } else if (typeof data.borrowerUserId === 'string' && data.borrowerUserId.length > 0) {
     resolvedBorrowerId = data.borrowerUserId
   } else {
-    const sessionToken = cookies().get('auth_session')?.value
-    if (sessionToken) {
-      const session = await decrypt(sessionToken)
-      resolvedBorrowerId =
-        typeof session?.user?.id === 'string' ? session.user.id : undefined
-    }
+    resolvedBorrowerId = sessionUser.id
   }
 
   const borrowerUserId = resolvedBorrowerId ?? undefined
@@ -234,6 +233,8 @@ export async function createRental(data: {
 }
 
 export async function getRentals() {
+  await requireSessionUser()
+
   return prisma.rental.findMany({
     include: {
       user: { select: { id: true, name: true, email: true } },
@@ -252,6 +253,8 @@ export async function getRentals() {
 }
 
 export async function getRentalById(id: string) {
+  await requireSessionUser()
+
   return prisma.rental.findUnique({
     where: { id },
     include: {
@@ -270,6 +273,8 @@ export async function getRentalById(id: string) {
 }
 
 export async function updateRentalStatus(id: string, status: string) {
+  await requireSessionUser()
+
   const prev = await prisma.rental.findUnique({
     where: { id },
     include: {
@@ -421,6 +426,8 @@ export async function updateRentalStatus(id: string, status: string) {
 const RENTAL_ITEM_NOTE_MAX = 2000
 
 export async function updateRentalItemNote(itemId: string, note: string | null) {
+  await requireSessionUser()
+
   const row = await prisma.rentalItem.findUnique({
     where: { id: itemId },
     select: { id: true, rentalId: true },
@@ -444,6 +451,8 @@ export async function updateRentalItemNote(itemId: string, note: string | null) 
  * Verknüpft eine Ausleihe nachträglich mit einem Kunden aus der Datenbank (Name muss exakt passen, Groß-/Kleinschreibung egal).
  */
 export async function linkRentalToCustomerByName(rentalId: string) {
+  await requireSessionUser()
+
   const rental = await prisma.rental.findUnique({
     where: { id: rentalId },
     select: { id: true, customerId: true, customerName: true },
@@ -488,6 +497,8 @@ export async function updateRentalCustomer(data: {
   /** Freitext; leer = Kunde von der Ausleihe entfernen. */
   customerName?: string
 }) {
+  await requireSessionUser()
+
   const rental = await prisma.rental.findUnique({ where: { id: data.rentalId } })
   if (!rental) {
     throw new Error('Ausleihe nicht gefunden.')
@@ -539,10 +550,21 @@ export async function updateRentalCustomer(data: {
 }
 
 export async function deleteRental(id: string) {
+  const sessionUser = await requireSessionUser()
+
   const rental = await prisma.rental.findUnique({
     where: { id },
     include: { items: { include: { instances: true } } }
   })
+
+  if (
+    rental &&
+    sessionUser.role !== 'ADMIN' &&
+    sessionUser.role !== 'SUPER_ADMIN' &&
+    rental.userId !== sessionUser.id
+  ) {
+    throw new Error('Keine Berechtigung.')
+  }
 
   if (rental) {
     const calendarEventId = rental.googleCalendarEventId
@@ -570,6 +592,8 @@ export async function deleteRental(id: string) {
 }
 
 export async function getOwnerSettlement(startDate?: Date, endDate?: Date) {
+  await requireSessionUser()
+
   const whereClause = {
     rentalItem: {
       rental: {

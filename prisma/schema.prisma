@@ -64,7 +64,7 @@ model User {
   name      String
   email     String      @unique
   password  String?
-  role      String      @default("USER") // ADMIN, USER
+  role      String      @default("USER") // SUPER_ADMIN, ADMIN, USER
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   rentals   Rental[]

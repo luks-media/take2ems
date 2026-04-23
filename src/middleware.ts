@@ -2,12 +2,25 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 
-const secretKey = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-replace-me-in-production')
+const jwtSecret = process.env.JWT_SECRET?.trim()
+
+if (!jwtSecret) {
+  throw new Error('JWT_SECRET is required')
+}
+
+const secretKey = new TextEncoder().encode(jwtSecret)
+const publicPaths = new Set(['/login', '/favicon.ico', '/robots.txt', '/sitemap.xml'])
+const publicFilePattern = /\.(?:png|jpe?g|gif|webp|svg|ico|css|js|map|txt|xml|woff2?|ttf|eot)$/i
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 
-  if (path === '/login' || path.startsWith('/api/') || path.startsWith('/_next/') || path.includes('.')) {
+  if (
+    publicPaths.has(path) ||
+    path.startsWith('/api/') ||
+    path.startsWith('/_next/') ||
+    publicFilePattern.test(path)
+  ) {
     return NextResponse.next()
   }
 

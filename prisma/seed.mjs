@@ -25,10 +25,10 @@ async function main() {
       name: 'Admin',
       email,
       password: hashedPassword,
-      role: 'ADMIN',
+      role: 'SUPER_ADMIN',
     },
   })
-  console.log('[prisma seed] Created initial admin:', email)
+  console.log('[prisma seed] Created initial super-admin:', email)
 }
 
 main()

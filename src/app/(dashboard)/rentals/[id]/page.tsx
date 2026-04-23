@@ -4,9 +4,18 @@ import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { RentalDetailClient } from '@/components/rentals/RentalDetailClient'
+import { getSessionUserFromCookies } from '@/lib/session'
 
 export default async function RentalDetailPage({ params }: { params: { id: string } }) {
-  const rental = await getRentalById(params.id)
+  const [rental, sessionUser] = await Promise.all([
+    getRentalById(params.id),
+    getSessionUserFromCookies(),
+  ])
+  const canDelete = Boolean(
+    sessionUser &&
+    rental &&
+    (sessionUser.role === 'ADMIN' || sessionUser.role === 'SUPER_ADMIN' || sessionUser.id === rental.userId)
+  )
 
   if (!rental) {
     notFound()
@@ -24,7 +33,7 @@ export default async function RentalDetailPage({ params }: { params: { id: strin
       </div>
       
       <div className="rounded-md border p-6 max-w-4xl bg-card">
-        <RentalDetailClient rental={rental} />
+        <RentalDetailClient rental={rental} canDelete={canDelete} />
       </div>
     </div>
   )

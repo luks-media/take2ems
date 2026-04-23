@@ -1,8 +1,8 @@
 /**
  * Rettet den ersten Login auf dem Server:
  * Liest INITIAL_ADMIN_EMAIL + INITIAL_ADMIN_PASSWORD aus der Umgebung (Docker Compose env_file).
- * – Gibt es schon einen User mit dieser E-Mail (egal welche Großschreibung): Passwort wird gesetzt, Rolle ADMIN.
- * – Sonst: neuer Admin-User.
+ * – Gibt es schon einen User mit dieser E-Mail (egal welche Großschreibung): Passwort wird gesetzt, Rolle SUPER_ADMIN.
+ * – Sonst: neuer Super-Admin-User.
  *
  * Ausführung im laufenden Container:
  *   docker compose exec ems npm run admin:upsert
@@ -35,7 +35,7 @@ async function main() {
   if (id) {
     await prisma.user.update({
       where: { id },
-      data: { email, password: hash, role: 'ADMIN' },
+      data: { email, password: hash, role: 'SUPER_ADMIN' },
     })
     console.log('[admin:upsert] Passwort gesetzt / E-Mail normalisiert für:', email)
     return
@@ -46,10 +46,10 @@ async function main() {
       name: 'Admin',
       email,
       password: hash,
-      role: 'ADMIN',
+      role: 'SUPER_ADMIN',
     },
   })
-  console.log('[admin:upsert] Neuer Admin angelegt:', email)
+  console.log('[admin:upsert] Neuer Super-Admin angelegt:', email)
 }
 
 main()

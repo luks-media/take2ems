@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Location } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -14,7 +13,14 @@ import {
 import { createLocation, deleteLocation } from '@/actions/location'
 import { Trash2, MapPin } from 'lucide-react'
 
-type UserWithLocations = User & { locations: Location[] }
+type UserWithLocations = {
+  id: string
+  name: string
+  locations: Array<{
+    id: string
+    name: string
+  }>
+}
 
 export function UserLocationsDialog({ user }: { user: UserWithLocations }) {
   const [open, setOpen] = useState(false)

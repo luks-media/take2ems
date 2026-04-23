@@ -39,7 +39,9 @@ export default async function MePage() {
         <p className="text-lg font-medium">{user.name}</p>
         <p className="text-sm text-muted-foreground">{user.email}</p>
         <div className="pt-2">
-          <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
+          <Badge variant={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? 'default' : 'secondary'}>
+            {user.role}
+          </Badge>
         </div>
       </section>
 

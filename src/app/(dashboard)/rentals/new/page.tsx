@@ -1,27 +1,15 @@
-import { cookies } from 'next/headers'
 import prisma from '@/lib/prisma'
 import { getEquipment } from '@/actions/equipment'
 import { getRentals } from '@/actions/rental'
 import NewRentalClient from '@/components/rentals/NewRentalClient'
 import { getAppSettings } from '@/lib/app-settings'
 import { rentalStatusReservesInventory } from '@/lib/rental-statuses'
-import { decrypt } from '@/actions/auth'
+import { getSessionUserFromCookies } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-async function getCurrentUserId() {
-  const token = cookies().get('auth_session')?.value
-  if (!token) return null
-  try {
-    const session = await decrypt(token)
-    return typeof session?.user?.id === 'string' ? session.user.id : null
-  } catch {
-    return null
-  }
-}
-
 export default async function NewRentalPage() {
-  const [equipment, rentals, appSettings, borrowerChoices, defaultBorrowerId] = await Promise.all([
+  const [equipment, rentals, appSettings, allBorrowerChoices, sessionUser] = await Promise.all([
     getEquipment(),
     getRentals(),
     getAppSettings(),
@@ -29,8 +17,13 @@ export default async function NewRentalPage() {
       select: { id: true, name: true, email: true },
       orderBy: { name: 'asc' },
     }),
-    getCurrentUserId(),
+    getSessionUserFromCookies(),
   ])
+  const canSelectBorrower = sessionUser?.role === 'ADMIN' || sessionUser?.role === 'SUPER_ADMIN'
+  const defaultBorrowerId = sessionUser?.id ?? null
+  const borrowerChoices = canSelectBorrower
+    ? allBorrowerChoices
+    : allBorrowerChoices.filter((u) => u.id === defaultBorrowerId)
 
   // We want to show all equipment, but gray out the ones that are fully booked for the selected dates.
   const instanceCounts = await prisma.equipmentInstance.groupBy({
@@ -93,6 +86,7 @@ export default async function NewRentalPage() {
           activeBlocks={activeBlocks}
           borrowerChoices={borrowerChoices}
           defaultBorrowerId={defaultBorrowerId}
+          canSelectBorrower={canSelectBorrower}
           appPrefs={{
             defaultRentalStatus,
             discountAllowed: appSettings.rentalDiscountAllowed,

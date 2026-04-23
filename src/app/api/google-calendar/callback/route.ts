@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import prisma from '@/lib/prisma'
-import { getSessionUserFromCookies } from '@/lib/session'
+import { requireAdmin } from '@/lib/session'
 import { encryptRefreshToken } from '@/lib/google-calendar/crypto'
 import { createOAuth2Client, getGcalStateCookieName } from '@/lib/google-calendar/oauth'
 import { getAppOrigin } from '@/lib/app-origin'
 
 export async function GET(request: NextRequest) {
   const base = getAppOrigin()
-  const user = await getSessionUserFromCookies()
-  if (!user || user.role !== 'ADMIN') {
+  try {
+    await requireAdmin()
+  } catch {
     return NextResponse.redirect(new URL('/login', base))
   }
 

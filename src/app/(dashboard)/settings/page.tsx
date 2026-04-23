@@ -60,7 +60,7 @@ export default async function SettingsPage({
     currency: 'EUR'
   })
 
-  const isAdmin = sessionUser?.role === 'ADMIN'
+  const isAdmin = sessionUser?.role === 'ADMIN' || sessionUser?.role === 'SUPER_ADMIN'
   const oauthCallbackUrl = `${getAppOrigin()}/api/google-calendar/callback`
 
   return (
@@ -139,7 +139,7 @@ export default async function SettingsPage({
         isAdmin={isAdmin}
       />
       
-      <DatabaseActions />
+      <DatabaseActions isAdmin={isAdmin} />
     </div>
   )
 }

@@ -2,8 +2,17 @@ import { NextResponse } from 'next/server'
 import { writeFileSync, existsSync, copyFileSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { resolveSqliteDatabaseFilePath } from '@/lib/sqlite-path'
+import { requireAdmin } from '@/lib/session'
 
 export async function POST(request: Request) {
+  try {
+    await requireAdmin()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Keine Berechtigung.'
+    const status = message === 'Nicht angemeldet.' ? 401 : 403
+    return new NextResponse(message, { status })
+  }
+
   try {
     const filePath = resolveSqliteDatabaseFilePath()
     if (!filePath) {

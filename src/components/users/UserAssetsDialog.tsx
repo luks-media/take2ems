@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Equipment, Location, User } from '@prisma/client'
 import {
   Dialog,
   DialogContent,
@@ -15,9 +14,22 @@ import { Share2 } from 'lucide-react'
 import type { UserBalanceDetail } from '@/lib/user-balance'
 import { UserBalanceSection } from '@/components/users/UserBalanceSection'
 
-type UserWithAssets = User & {
-  locations: Location[]
-  equipment: (Equipment & { location: Location | null; owners: { id: string }[] })[]
+type UserWithAssets = {
+  id: string
+  name: string
+  locations: Array<{
+    id: string
+    name: string
+  }>
+  equipment: Array<{
+    id: string
+    name: string
+    equipmentCode: string
+    category: string
+    quantity: number
+    location: { id: string; name: string } | null
+    owners: Array<{ id: string }>
+  }>
 }
 
 export function UserAssetsDialog({

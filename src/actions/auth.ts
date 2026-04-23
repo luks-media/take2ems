@@ -8,7 +8,13 @@ import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
-const secretKey = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-replace-me-in-production')
+const jwtSecret = process.env.JWT_SECRET?.trim()
+
+if (!jwtSecret) {
+  throw new Error('JWT_SECRET is required')
+}
+
+const secretKey = new TextEncoder().encode(jwtSecret)
 
 export async function encrypt(payload: any) {
   return await new SignJWT(payload)

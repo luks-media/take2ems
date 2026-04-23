@@ -1,29 +1,19 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
-import { decrypt } from '@/actions/auth'
 import prisma from '@/lib/prisma'
-
-async function requireSessionUser() {
-  const token = cookies().get('auth_session')?.value
-  if (!token) return null
-  try {
-    const session = await decrypt(token)
-    const id = session?.user?.id
-    return typeof id === 'string' ? id : null
-  } catch {
-    return null
-  }
-}
+import { requireSessionUser } from '@/lib/session'
 
 export type CustomerSearchHit = { id: string; name: string }
 
 /** Kunden für Autocomplete (Ausleihe). Nur für angemeldete Nutzer. */
 export async function searchCustomers(query: string): Promise<CustomerSearchHit[]> {
-  const userId = await requireSessionUser()
-  if (!userId) return []
+  try {
+    await requireSessionUser()
+  } catch {
+    return []
+  }
 
   const q = query.trim()
   if (q.length < 1) return []
@@ -55,10 +45,7 @@ export async function createCustomer(data: {
   invoiceCountry?: string
   invoiceVatId?: string
 }): Promise<{ id: string }> {
-  const userId = await requireSessionUser()
-  if (!userId) {
-    throw new Error('Nicht angemeldet.')
-  }
+  await requireSessionUser()
 
   const name = data.name?.trim()
   if (!name) {
@@ -107,10 +94,7 @@ export async function updateCustomer(data: {
   invoiceCountry?: string
   invoiceVatId?: string
 }) {
-  const userId = await requireSessionUser()
-  if (!userId) {
-    throw new Error('Nicht angemeldet.')
-  }
+  await requireSessionUser()
 
   const name = data.name?.trim()
   if (!name) {
