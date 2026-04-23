@@ -8,15 +8,16 @@ import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 
-const jwtSecret = process.env.JWT_SECRET?.trim()
-
-if (!jwtSecret) {
-  throw new Error('JWT_SECRET is required')
+function getSecretKey() {
+  const jwtSecret = process.env.JWT_SECRET?.trim()
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET is required')
+  }
+  return new TextEncoder().encode(jwtSecret)
 }
 
-const secretKey = new TextEncoder().encode(jwtSecret)
-
 export async function encrypt(payload: any) {
+  const secretKey = getSecretKey()
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -25,6 +26,7 @@ export async function encrypt(payload: any) {
 }
 
 export async function decrypt(input: string): Promise<any> {
+  const secretKey = getSecretKey()
   const { payload } = await jwtVerify(input, secretKey, {
     algorithms: ['HS256'],
   })
