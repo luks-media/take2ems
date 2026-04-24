@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY .npmrc ./
 # postinstall runs prisma generate — schema must exist before npm ci
 COPY prisma ./prisma
 ENV PUPPETEER_SKIP_DOWNLOAD=1
