@@ -65,6 +65,16 @@ DATABASE_URL=file:./dev.db npx prisma migrate resolve --applied 20260418120000_i
 
 Danach wie gewohnt `prisma migrate deploy` nutzen.
 
+## Changelog (Kurz)
+
+### v1.1.0
+
+- Neues Aktivitäts-Log in `Settings` mit Detailfenster pro Eintrag (inkl. Filter und Redaction sensibler Daten).
+- Überfällige Rückgaben blockieren Verfügbarkeit zuverlässig, bis auf `Zurückgegeben`/`Storniert` gesetzt.
+- Dashboard: Button `Zurückgegeben` bei überfälligen Rückgaben für schnellen Abschluss.
+- Ausleihen werden automatisch auf `Aktiv` gesetzt, sobald das Startdatum erreicht ist.
+- UI-Verbesserungen: User-Profilzugang in die Sidebar verlegt, Versionsnummer unten in `Settings`, konsistente Umlaute.
+
 ## Release
 
-Git-Tag für diese Version: **`EMS_v1.0`** (Paketversion: `1.0.0`).
+Git-Tag für diese Version: **`EMS_v1.1.0`** (Paketversion: `1.1.0`).
