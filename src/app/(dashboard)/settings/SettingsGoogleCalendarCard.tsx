@@ -104,7 +104,7 @@ export function SettingsGoogleCalendarCard({
           <h3 className="font-semibold leading-none tracking-tight">Google Kalender</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Firmenkalender per OAuth verbinden. Neue und geaenderte Ausleihen werden als ganztaegige
+          Firmenkalender per OAuth verbinden. Neue und geänderte Ausleihen werden als ganztägige
           Termine synchronisiert (bei Storno wird der Termin entfernt). Redirect-URI in der Google
           Cloud Console:{' '}
           <code className="text-xs bg-muted px-1 rounded break-all">{oauthCallbackUrl}</code>
@@ -155,7 +155,7 @@ export function SettingsGoogleCalendarCard({
                   placeholder="primary oder z. B. xxxx@group.calendar.google.com"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Leer lassen fuer den Hauptkalender des verbundenen Kontos (<code>primary</code>).
+                  Leer lassen für den Hauptkalender des verbundenen Kontos (<code>primary</code>).
                 </p>
               </div>
               <div className="flex items-center space-x-2">
@@ -177,7 +177,7 @@ export function SettingsGoogleCalendarCard({
           </>
         ) : (
           <p className="text-xs text-muted-foreground pt-2 border-t">
-            Nur Administratoren koennen Google Calendar verbinden.
+            Nur Administratoren können Google Calendar verbinden.
           </p>
         )}
       </div>

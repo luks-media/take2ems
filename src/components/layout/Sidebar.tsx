@@ -12,6 +12,7 @@ import {
   Receipt,
   Library,
   Users,
+  CircleUserRound,
 } from "lucide-react"
 import { logout } from "@/actions/auth"
 import { cn } from "@/lib/utils"
@@ -127,6 +128,13 @@ export function Sidebar() {
         </Link>
       </nav>
       <div className="mt-auto pt-4 border-t">
+        <Link
+          href="/me"
+          className={cn(navLink, pathname.startsWith("/me") ? "bg-muted font-semibold" : "hover:bg-muted")}
+        >
+          <CircleUserRound className="w-4 h-4" />
+          Mein Profil
+        </Link>
         <form action={logout}>
           <button
             type="submit"

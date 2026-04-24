@@ -41,6 +41,7 @@ export default async function NewRentalPage() {
 
   const nextRentalsMap: Record<string, string> = {}
   const now = new Date()
+  const farFutureIso = '9999-12-31T23:59:59.999Z'
   
   const activeBlocks: { equipmentId: string; startDate: string; endDate: string; quantity: number }[] = []
 
@@ -48,12 +49,14 @@ export default async function NewRentalPage() {
     if (rentalStatusReservesInventory(rental.status)) {
       const startDate = new Date(rental.startDate)
       const endDate = new Date(rental.endDate)
+      const isOverdueOpen = endDate < now
+      const blockEndIso = isOverdueOpen ? farFutureIso : endDate.toISOString()
       
       for (const item of rental.items) {
         activeBlocks.push({
           equipmentId: item.equipmentId,
           startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          endDate: blockEndIso,
           quantity: item.quantity
         })
         

@@ -73,6 +73,7 @@ model User {
   lotShares  EquipmentOwnershipLotShare[]
   ownerShares RentalItemOwnerShare[]
   locations Location[]
+  activityLogs ActivityLog[]
 }
 
 /// Gespeicherte Kunden / Projekte für Ausleihen und Autocomplete.
@@ -208,4 +209,21 @@ model AppSettings {
   googleCalendarRefreshTokenEnc String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Audit log for important create/update/delete actions.
+model ActivityLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  entityType String
+  entityId   String?
+  action     String
+  message    String
+  details    String?
+
+  @@index([createdAt])
+  @@index([entityType, createdAt])
+  @@index([actorId, createdAt])
 }

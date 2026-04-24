@@ -26,7 +26,7 @@ export function ChangePasswordForm() {
         e.currentTarget.reset()
       }
     } catch {
-      setError('Passwort konnte nicht geaendert werden.')
+      setError('Passwort konnte nicht geändert werden.')
     } finally {
       setPending(false)
     }
@@ -62,7 +62,7 @@ export function ChangePasswordForm() {
         />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {success && <p className="text-sm text-green-700 dark:text-green-400">Passwort wurde geaendert.</p>}
+      {success && <p className="text-sm text-green-700 dark:text-green-400">Passwort wurde geändert.</p>}
       <Button type="submit" disabled={pending}>
         {pending ? 'Speichern...' : 'Passwort speichern'}
       </Button>

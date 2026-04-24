@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import prisma from '@/lib/prisma'
 import { requireAdmin } from '@/lib/session'
 import { sendTestEmail } from '@/lib/mail'
+import { writeActivityLog } from '@/lib/activity-log'
 
 const ALLOWED_RENTAL_DEFAULT_STATUS = new Set(['PENDING', 'ACTIVE'])
 
@@ -25,7 +26,7 @@ export async function sendSettingsTestEmail(formData: FormData) {
 }
 
 export async function updateAppSettingsAction(formData: FormData) {
-  await requireAdmin()
+  const actor = await requireAdmin()
 
   const pdfCompanyLine = String(formData.get('pdfCompanyLine') ?? '').trim() || null
   const pdfContactLine = String(formData.get('pdfContactLine') ?? '').trim() || null
@@ -33,7 +34,7 @@ export async function updateAppSettingsAction(formData: FormData) {
 
   const rentalDefaultStatus = String(formData.get('rentalDefaultStatus') ?? 'PENDING').trim()
   if (!ALLOWED_RENTAL_DEFAULT_STATUS.has(rentalDefaultStatus)) {
-    return { error: 'Ungueltiger Standard-Status.' }
+    return { error: 'Ungültiger Standard-Status.' }
   }
 
   const discountRaw = formData.get('rentalDiscountAllowed')
@@ -41,7 +42,7 @@ export async function updateAppSettingsAction(formData: FormData) {
 
   const minDaysRaw = Number.parseInt(String(formData.get('rentalMinDays') ?? '1'), 10)
   if (!Number.isFinite(minDaysRaw) || minDaysRaw < 1 || minDaysRaw > 365) {
-    return { error: 'Mindest-Miettage muessen zwischen 1 und 365 liegen.' }
+    return { error: 'Mindest-Miettage müssen zwischen 1 und 365 liegen.' }
   }
 
   await prisma.appSettings.upsert({
@@ -67,12 +68,26 @@ export async function updateAppSettingsAction(formData: FormData) {
 
   revalidatePath('/settings')
   revalidatePath('/rentals/new')
+  await writeActivityLog({
+    actorId: actor.id,
+    entityType: 'settings',
+    entityId: 'singleton',
+    action: 'update',
+    message: 'App-Einstellungen aktualisiert',
+    details: {
+      rentalDefaultStatus,
+      rentalDiscountAllowed,
+      rentalMinDays: minDaysRaw,
+    },
+  })
   return { success: true }
 }
 
 export async function updateGoogleCalendarSettingsAction(formData: FormData) {
+  let actorId: string | undefined
   try {
-    await requireAdmin()
+    const actor = await requireAdmin()
+    actorId = actor.id
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Keine Berechtigung.'
     return { error: message }
@@ -95,6 +110,14 @@ export async function updateGoogleCalendarSettingsAction(formData: FormData) {
         googleCalendarSyncEnabled,
       },
     })
+    await writeActivityLog({
+      actorId,
+      entityType: 'settings',
+      entityId: 'singleton',
+      action: 'update',
+      message: 'Google-Calendar-Einstellungen aktualisiert',
+      details: { googleCalendarId: calendarId, googleCalendarSyncEnabled },
+    })
   } catch {
     return { error: 'Datenbankfehler beim Speichern.' }
   }
@@ -104,8 +127,10 @@ export async function updateGoogleCalendarSettingsAction(formData: FormData) {
 }
 
 export async function disconnectGoogleCalendarAction() {
+  let actorId: string | undefined
   try {
-    await requireAdmin()
+    const actor = await requireAdmin()
+    actorId = actor.id
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Keine Berechtigung.'
     return { error: message }
@@ -121,6 +146,14 @@ export async function disconnectGoogleCalendarAction() {
       update: {
         googleCalendarRefreshTokenEnc: null,
       },
+    })
+    await writeActivityLog({
+      actorId,
+      entityType: 'settings',
+      entityId: 'singleton',
+      action: 'update',
+      message: 'Google-Calendar-Verbindung getrennt',
+      details: { disconnected: true },
     })
   } catch {
     return { error: 'Datenbankfehler beim Trennen.' }

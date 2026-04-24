@@ -2,8 +2,10 @@ import prisma from '@/lib/prisma'
 import { endOfMonth, format, startOfMonth } from 'date-fns'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { autoActivateDueRentals, updateRentalStatus } from '@/actions/rental'
 import {
   AlertTriangle,
   CalendarCheck2,
@@ -31,6 +33,15 @@ const kpiCardClass =
 export const dynamic = 'force-dynamic'
 
 export default async function Home() {
+  await autoActivateDueRentals()
+
+  async function markOverdueReturned(formData: FormData) {
+    'use server'
+    const rentalId = String(formData.get('rentalId') ?? '')
+    if (!rentalId) return
+    await updateRentalStatus(rentalId, 'RETURNED')
+  }
+
   const now = new Date()
   const monthStart = startOfMonth(now)
   const monthEnd = endOfMonth(now)
@@ -227,19 +238,32 @@ export default async function Home() {
             <Card className="overflow-hidden p-0 rounded-xl">
               <div className="flex flex-col">
                 {overdueRentals.map((rental, i) => (
-                  <Link
+                  <div
                     key={rental.id}
-                    href={`/rentals/${rental.id}`}
                     className={cn(listRowLink, i !== overdueRentals.length - 1 ? 'border-b' : '')}
                   >
-                    <div>
-                      <p className="text-sm font-medium">{rental.customerName || 'Unbekannt'}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Ende: {format(new Date(rental.endDate), 'dd.MM.yyyy')}
-                      </p>
+                    <div className="min-w-0">
+                      <Link href={`/rentals/${rental.id}`} className="block">
+                        <p className="text-sm font-medium">{rental.customerName || 'Unbekannt'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Ende: {format(new Date(rental.endDate), 'dd.MM.yyyy')}
+                        </p>
+                      </Link>
                     </div>
-                    <Badge variant="destructive">Überfällig</Badge>
-                  </Link>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="destructive">Überfällig</Badge>
+                      <form action={markOverdueReturned}>
+                        <input type="hidden" name="rentalId" value={rental.id} />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="bg-black text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
+                        >
+                          Zurückgegeben
+                        </Button>
+                      </form>
+                    </div>
+                  </div>
                 ))}
               </div>
             </Card>

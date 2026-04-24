@@ -23,7 +23,7 @@ export function buildOwnerShares(params: {
 }): OwnerShareResult[] {
   const { rentalItemTotalPrice, rentedQuantity, equipmentQuantity, ownerShares } = params
   if (ownerShares.length === 0) {
-    throw new Error('Keine Besitzer-Anteile fuer Equipment definiert.')
+    throw new Error('Keine Besitzer-Anteile für Equipment definiert.')
   }
 
   const totalOwnedUnits = ownerShares.reduce((sum, share) => sum + share.ownedUnits, 0)
@@ -85,18 +85,18 @@ export function buildOwnerSharesFromLots(params: {
 }): OwnerShareResult[] {
   const { rentalItemTotalPrice, rentedQuantity, lots, borrowerUserId } = params
   if (rentedQuantity <= 0) return []
-  if (!lots.length) throw new Error('Keine Besitz-Lose fuer Equipment definiert.')
+  if (!lots.length) throw new Error('Keine Besitz-Lose für Equipment definiert.')
 
   const totalUnits = lots.reduce((sum, lot) => sum + lot.units, 0)
-  if (totalUnits <= 0) throw new Error('Besitz-Lose sind ungueltig.')
+  if (totalUnits <= 0) throw new Error('Besitz-Lose sind ungültig.')
 
   for (const lot of lots) {
     if (!Number.isInteger(lot.units) || lot.units <= 0) {
-      throw new Error('Jedes Besitz-Los braucht eine positive ganze Stueckzahl.')
+      throw new Error('Jedes Besitz-Los braucht eine positive ganze Stückzahl.')
     }
     const fractionSum = lot.shares.reduce((sum, share) => sum + share.fraction, 0)
     if (Math.abs(fractionSum - 1) > 0.001) {
-      throw new Error('Die Anteile eines Besitz-Los muessen zusammen 100% ergeben.')
+      throw new Error('Die Anteile eines Besitz-Los müssen zusammen 100% ergeben.')
     }
   }
 

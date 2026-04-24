@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache'
 import { requireAdmin, requireSessionUser } from '@/lib/session'
+import { writeActivityLog } from '@/lib/activity-log'
 
 /** Bundles mit weniger als zwei Mitgliedern werden aufgelöst (keine sinnvolle Empfehlungsgruppe). */
 async function normalizeSingletonRentalBundles(
@@ -46,23 +47,23 @@ function validateOwnershipLots(quantity: number, ownershipLots?: OwnershipLotInp
   if (!ownershipLots || ownershipLots.length === 0) return
   const lotUnitsSum = ownershipLots.reduce((sum, lot) => sum + lot.units, 0)
   if (lotUnitsSum !== quantity) {
-    throw new Error(`Die Summe der Lot-Stueckzahlen (${lotUnitsSum}) muss exakt der Anzahl (${quantity}) entsprechen.`)
+    throw new Error(`Die Summe der Lot-Stückzahlen (${lotUnitsSum}) muss exakt der Anzahl (${quantity}) entsprechen.`)
   }
 
   for (const lot of ownershipLots) {
     if (!Number.isInteger(lot.units) || lot.units <= 0) {
-      throw new Error('Jedes Besitz-Los braucht eine positive ganze Stueckzahl.')
+      throw new Error('Jedes Besitz-Los braucht eine positive ganze Stückzahl.')
     }
     const uniqueOwners = new Set<string>()
     const fractionSum = lot.shares.reduce((sum, share) => {
-      if (!share.ownerId) throw new Error('Ungueltige Owner-Zuordnung im Lot.')
-      if (share.fraction <= 0) throw new Error('Owner-Anteile im Lot muessen positiv sein.')
+      if (!share.ownerId) throw new Error('Ungültige Owner-Zuordnung im Lot.')
+      if (share.fraction <= 0) throw new Error('Owner-Anteile im Lot müssen positiv sein.')
       if (uniqueOwners.has(share.ownerId)) throw new Error('Ein Owner darf in einem Lot nur einmal vorkommen.')
       uniqueOwners.add(share.ownerId)
       return sum + share.fraction
     }, 0)
     if (Math.abs(fractionSum - 1) > 0.001) {
-      throw new Error('Die Anteile in jedem Lot muessen zusammen 100% ergeben.')
+      throw new Error('Die Anteile in jedem Lot müssen zusammen 100% ergeben.')
     }
   }
 }
@@ -71,9 +72,9 @@ function validateOwnerUnitShares(quantity: number, ownerUnitShares?: OwnerUnitSh
   if (!ownerUnitShares || ownerUnitShares.length === 0) return
   const seenOwnerIds = new Set<string>()
   for (const share of ownerUnitShares) {
-    if (!share.ownerId) throw new Error('Ungueltiger Owner im Besitzverhaeltnis.')
+    if (!share.ownerId) throw new Error('Ungültiger Owner im Besitzverhältnis.')
     if (!Number.isInteger(share.units) || share.units <= 0) {
-      throw new Error('Besitzverhaeltnis-Stueckzahlen muessen ganze positive Werte sein.')
+      throw new Error('Besitzverhältnis-Stückzahlen müssen ganze positive Werte sein.')
     }
     if (seenOwnerIds.has(share.ownerId)) {
       throw new Error('Jeder Owner darf im Besitzverhaeltnis nur einmal vorkommen.')
@@ -88,7 +89,7 @@ function validateOwnershipGroups(quantity: number, ownershipGroups?: OwnershipGr
   if (totalUnits > quantity) throw new Error('Die Summe der Shared-Gruppen darf die Gesamtanzahl nicht ueberschreiten.')
   for (const group of ownershipGroups) {
     if (!Number.isInteger(group.units) || group.units <= 0) {
-      throw new Error('Gruppen-Stueckzahlen muessen ganze positive Werte sein.')
+      throw new Error('Gruppen-Stückzahlen müssen ganze positive Werte sein.')
     }
     if (!group.ownerIds || group.ownerIds.length === 0) {
       throw new Error('Jede Gruppe braucht mindestens einen Besitzer.')
@@ -158,7 +159,7 @@ export async function createEquipment(data: {
   ownershipLots?: OwnershipLotInput[]
   ownerShares?: { ownerId: string; ownedUnits: number }[]
 }) {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   const quantity = data.quantity || 1
   const ownerUnitShares = data.ownerUnitShares || []
@@ -261,6 +262,19 @@ export async function createEquipment(data: {
   revalidatePath('/equipment')
   revalidatePath('/rentals/new')
   revalidatePath('/users')
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'equipment',
+    entityId: newEquipment.id,
+    action: 'create',
+    message: `Equipment erstellt: ${newEquipment.equipmentCode} - ${newEquipment.name}`,
+    details: {
+      equipmentCode: newEquipment.equipmentCode,
+      category: newEquipment.category,
+      quantity: newEquipment.quantity,
+      dailyRate: newEquipment.dailyRate,
+    },
+  })
   return newEquipment
 }
 
@@ -321,7 +335,7 @@ export async function updateEquipmentRentalBundle(
   equipmentId: string,
   linkedEquipmentIds: string[]
 ) {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   const uniqueLinked = Array.from(
     new Set(linkedEquipmentIds.filter((id) => typeof id === 'string' && id.length > 0 && id !== equipmentId))
@@ -389,6 +403,14 @@ export async function updateEquipmentRentalBundle(
   revalidatePath('/equipment')
   revalidatePath('/rentals/new')
   revalidatePath(`/equipment/${equipmentId}`)
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'equipment',
+    entityId: equipmentId,
+    action: 'update',
+    message: 'Ausleih-Empfehlungsgruppe aktualisiert',
+    details: { linkedEquipmentIds: uniqueLinked },
+  })
 }
 
 async function syncEquipmentHeadStatusFromInstances(equipmentId: string) {
@@ -426,7 +448,7 @@ export async function setEquipmentInstanceDefectState(input: {
   defective: boolean
   note?: string | null
 }) {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   try {
     const note =
@@ -482,6 +504,14 @@ export async function setEquipmentInstanceDefectState(input: {
     revalidatePath('/rentals/new')
     revalidatePath('/')
     revalidatePath('/users')
+    await writeActivityLog({
+      actorId: sessionUser.id,
+      entityType: 'equipment',
+      entityId: instance.equipmentId,
+      action: 'update',
+      message: input.defective ? 'Equipment-Exemplar als defekt markiert' : 'Equipment-Exemplar freigegeben',
+      details: { instanceId: input.instanceId, defective: input.defective, note: note ?? null },
+    })
     return { ok: true as const }
   } catch (e) {
     console.error('setEquipmentInstanceDefectState', e)
@@ -564,7 +594,7 @@ export async function updateEquipment(
     ownerShares: { ownerId: string; ownedUnits: number }[]
   }>
 ) {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   const { ownerIds, ownerShares, ownershipLots, ownerUnitShares, ownershipGroups, ...rest } = data;
   const current = await prisma.equipment.findUnique({
@@ -715,11 +745,24 @@ export async function updateEquipment(
   revalidatePath('/equipment')
   revalidatePath('/rentals/new')
   revalidatePath('/users')
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'equipment',
+    entityId: id,
+    action: 'update',
+    message: `Equipment aktualisiert: ${updated.equipmentCode} - ${updated.name}`,
+    details: {
+      changedFields: Object.keys(data),
+      quantity: updated.quantity,
+      dailyRate: updated.dailyRate,
+      status: updated.status,
+    },
+  })
   return updated
 }
 
 export async function deleteEquipment(id: string) {
-  await requireAdmin()
+  const actor = await requireAdmin()
 
   try {
     const inUse = await prisma.rentalItem.findFirst({
@@ -732,7 +775,7 @@ export async function deleteEquipment(id: string) {
 
     const toDelete = await prisma.equipment.findUnique({
       where: { id },
-      select: { rentalBundleId: true },
+      select: { rentalBundleId: true, name: true, equipmentCode: true },
     })
     const bundleId = toDelete?.rentalBundleId ?? null
 
@@ -755,6 +798,14 @@ export async function deleteEquipment(id: string) {
     revalidatePath('/equipment')
     revalidatePath('/rentals/new')
     revalidatePath('/users')
+    await writeActivityLog({
+      actorId: actor.id,
+      entityType: 'equipment',
+      entityId: id,
+      action: 'delete',
+      message: `Equipment gelöscht: ${toDelete?.equipmentCode || id} - ${toDelete?.name || ''}`.trim(),
+      details: { equipmentCode: toDelete?.equipmentCode ?? null, name: toDelete?.name ?? null },
+    })
     return { success: true }
   } catch (error) {
     console.error('Fehler beim Löschen des Equipments:', error)

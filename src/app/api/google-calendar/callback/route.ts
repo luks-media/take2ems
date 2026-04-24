@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   if (!expectedState || !state || expectedState !== state) {
     return NextResponse.redirect(
-      new URL(`/settings?google=error&message=${encodeURIComponent('Ungueltiger OAuth-State.')}`, base)
+      new URL(`/settings?google=error&message=${encodeURIComponent('Ungültiger OAuth-State.')}`, base)
     )
   }
 

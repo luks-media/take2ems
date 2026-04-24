@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { requireSessionUser } from '@/lib/session'
+import { writeActivityLog } from '@/lib/activity-log'
 
 export type CustomerSearchHit = { id: string; name: string }
 
@@ -45,7 +46,7 @@ export async function createCustomer(data: {
   invoiceCountry?: string
   invoiceVatId?: string
 }): Promise<{ id: string }> {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   const name = data.name?.trim()
   if (!name) {
@@ -77,6 +78,18 @@ export async function createCustomer(data: {
   })
 
   revalidatePath('/customers')
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'customer',
+    entityId: customer.id,
+    action: 'create',
+    message: `Kunde erstellt: ${name}`,
+    details: {
+      contactPerson: optTrim(data.contactPerson),
+      email: optTrim(data.email),
+      phone: optTrim(data.phone),
+    },
+  })
   return { id: customer.id }
 }
 
@@ -94,7 +107,7 @@ export async function updateCustomer(data: {
   invoiceCountry?: string
   invoiceVatId?: string
 }) {
-  await requireSessionUser()
+  const sessionUser = await requireSessionUser()
 
   const name = data.name?.trim()
   if (!name) {
@@ -120,4 +133,17 @@ export async function updateCustomer(data: {
 
   revalidatePath('/customers')
   revalidatePath(`/customers/${data.id}`)
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'customer',
+    entityId: data.id,
+    action: 'update',
+    message: `Kunde aktualisiert: ${name}`,
+    details: {
+      contactPerson: optTrim(data.contactPerson),
+      email: optTrim(data.email),
+      phone: optTrim(data.phone),
+      invoiceCity: optTrim(data.invoiceCity),
+    },
+  })
 }

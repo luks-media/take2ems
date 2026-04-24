@@ -30,6 +30,7 @@ import {
   linkRentalToCustomerByName,
   updateRentalCustomer,
   updateRentalItemNote,
+  updateRentalItems,
 } from '@/actions/rental'
 import { searchCustomers, type CustomerSearchHit } from '@/actions/customer'
 import { Equipment, Rental, RentalItem, RentalItemOwnerShare, User } from '@prisma/client'
@@ -100,9 +101,11 @@ type RentalWithItems = Rental & {
 export function RentalDetailClient({
   rental,
   canDelete,
+  equipmentOptions,
 }: {
   rental: RentalWithItems
   canDelete: boolean
+  equipmentOptions: { id: string; name: string; equipmentCode: string }[]
 }) {
   const router = useRouter()
   const [isUpdating, setIsUpdating] = useState(false)
@@ -117,7 +120,17 @@ export function RentalDetailClient({
   const [custSuggestOpen, setCustSuggestOpen] = useState(false)
   const [custSaving, setCustSaving] = useState(false)
   const [custFormErr, setCustFormErr] = useState<string | null>(null)
+  const [editingItems, setEditingItems] = useState(false)
+  const [itemDrafts, setItemDrafts] = useState<Array<{ equipmentId: string; quantity: number }>>([])
+  const [itemFormErr, setItemFormErr] = useState<string | null>(null)
+  const [itemSaving, setItemSaving] = useState(false)
   const deleteDeniedMessage = 'Nur Administratoren oder der Ausleiher dürfen löschen.'
+  const canEditRentalItems = rental.status !== 'RETURNED' && rental.status !== 'CANCELLED'
+
+  useEffect(() => {
+    if (!editingItems) return
+    setItemDrafts(rental.items.map((item) => ({ equipmentId: item.equipmentId, quantity: item.quantity })))
+  }, [editingItems, rental.items])
 
   function openCustomerEdit() {
     setCustName(rental.customerName || '')
@@ -203,6 +216,41 @@ export function RentalDetailClient({
     } finally {
       setIsLinkingCustomer(false)
     }
+  }
+
+  function openItemsEdit() {
+    setItemFormErr(null)
+    setItemDrafts(rental.items.map((item) => ({ equipmentId: item.equipmentId, quantity: item.quantity })))
+    setEditingItems(true)
+  }
+
+  function cancelItemsEdit() {
+    setEditingItems(false)
+    setItemFormErr(null)
+  }
+
+  async function saveItemsEdit() {
+    setItemFormErr(null)
+    setItemSaving(true)
+    try {
+      await updateRentalItems({
+        rentalId: rental.id,
+        items: itemDrafts.map((d) => ({
+          equipmentId: d.equipmentId,
+          quantity: Math.max(1, Math.floor(d.quantity || 1)),
+        })),
+      })
+      setEditingItems(false)
+      router.refresh()
+    } catch (e: unknown) {
+      setItemFormErr(e instanceof Error ? e.message : 'Positionen konnten nicht gespeichert werden.')
+    } finally {
+      setItemSaving(false)
+    }
+  }
+
+  function updateDraft(index: number, patch: Partial<{ equipmentId: string; quantity: number }>) {
+    setItemDrafts((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   }
 
   return (
@@ -371,12 +419,44 @@ export function RentalDetailClient({
 
       <div>
         <h3 className="text-lg font-semibold mb-4">Ausgeliehenes Equipment</h3>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {editingItems ? (
+            <>
+              <Button type="button" size="sm" onClick={saveItemsEdit} disabled={itemSaving}>
+                {itemSaving ? 'Speichern…' : 'Positionen speichern'}
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={cancelItemsEdit} disabled={itemSaving}>
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => setItemDrafts((prev) => [...prev, { equipmentId: '', quantity: 1 }])}
+                disabled={itemSaving}
+              >
+                Artikel hinzufügen
+              </Button>
+            </>
+          ) : (
+            <Button type="button" size="sm" variant="outline" onClick={openItemsEdit} disabled={!canEditRentalItems}>
+              Artikel & Anzahl bearbeiten
+            </Button>
+          )}
+          {!canEditRentalItems && (
+            <p className="w-full text-xs text-muted-foreground">
+              Bei zurückgegebenen oder stornierten Ausleihen sind Artikel/Anzahl gesperrt.
+            </p>
+          )}
+          {itemFormErr && <p className="w-full text-sm text-destructive">{itemFormErr}</p>}
+        </div>
         <div className="rounded-md border bg-card text-card-foreground shadow-sm">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Code</TableHead>
                 <TableHead>Artikel</TableHead>
+                <TableHead>Anzahl</TableHead>
                 <TableHead>Notiz</TableHead>
                 <TableHead>S/N</TableHead>
                 <TableHead>Tagespreis</TableHead>
@@ -384,52 +464,108 @@ export function RentalDetailClient({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rental.items.map((item) => (
-                <Fragment key={item.id}>
+              {(editingItems ? itemDrafts : rental.items).map((item, idx) => (
+                <Fragment key={editingItems ? `draft-${idx}` : item.id}>
                   <TableRow>
-                    <TableCell className="font-mono text-xs">{item.equipment.equipmentCode}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {editingItems
+                        ? equipmentOptions.find((opt) => opt.id === item.equipmentId)?.equipmentCode || '—'
+                        : item.equipment.equipmentCode}
+                    </TableCell>
                     <TableCell className="font-medium">
-                      <div className="flex items-start gap-2">
-                        <EquipmentCategoryIcon
-                          category={item.equipment.category}
-                          className="mt-0.5 h-4 w-4 text-muted-foreground"
-                        />
-                        <div className="min-w-0">
-                          <div>{item.equipment.name}</div>
-                          {item.equipment.internalNote?.trim() && (
-                            <div className="mt-1 text-xs font-normal italic text-muted-foreground whitespace-pre-wrap">
-                              Artikel-Notiz: {item.equipment.internalNote}
-                            </div>
-                          )}
+                      {editingItems ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={item.equipmentId}
+                            onChange={(e) => updateDraft(idx, { equipmentId: e.target.value })}
+                            disabled={itemSaving}
+                          >
+                            <option value="">Artikel wählen…</option>
+                            {equipmentOptions.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.equipmentCode} - {opt.name}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setItemDrafts((prev) => prev.filter((_, i) => i !== idx))}
+                            disabled={itemSaving || itemDrafts.length <= 1}
+                          >
+                            Entfernen
+                          </Button>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="flex items-start gap-2">
+                          <EquipmentCategoryIcon
+                            category={item.equipment.category}
+                            className="mt-0.5 h-4 w-4 text-muted-foreground"
+                          />
+                          <div className="min-w-0">
+                            <div>{item.equipment.name}</div>
+                            {item.equipment.internalNote?.trim() && (
+                              <div className="mt-1 text-xs font-normal italic text-muted-foreground whitespace-pre-wrap">
+                                Artikel-Notiz: {item.equipment.internalNote}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingItems ? (
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={item.quantity}
+                          onChange={(e) =>
+                            updateDraft(idx, {
+                              quantity: Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 1,
+                            })
+                          }
+                          disabled={itemSaving}
+                          className="w-24"
+                        />
+                      ) : (
+                        item.quantity
+                      )}
                     </TableCell>
                     <TableCell className="align-top">
-                      <RentalItemNoteField itemId={item.id} initialNote={item.note} />
+                      {editingItems ? (
+                        <p className="text-xs text-muted-foreground">Notiz direkt im Feld speichern (on blur).</p>
+                      ) : (
+                        <RentalItemNoteField itemId={item.id} initialNote={item.note} />
+                      )}
                     </TableCell>
-                    <TableCell>{item.equipment.serialNumber || '-'}</TableCell>
-                    <TableCell>{item.dailyRate.toFixed(2)} €</TableCell>
-                    <TableCell>{item.totalPrice.toFixed(2)} €</TableCell>
+                    <TableCell>{editingItems ? '—' : item.equipment.serialNumber || '-'}</TableCell>
+                    <TableCell>{editingItems ? '—' : `${item.dailyRate.toFixed(2)} €`}</TableCell>
+                    <TableCell>{editingItems ? '—' : `${item.totalPrice.toFixed(2)} €`}</TableCell>
                   </TableRow>
-                  <TableRow>
-                    <TableCell colSpan={6} className="bg-muted/20">
-                      <div className="space-y-1 text-sm">
-                        <div className="font-medium">Owner-Anteile</div>
-                        {item.ownerShares.length === 0 ? (
-                          <div className="text-xs text-muted-foreground">Keine Anteile gespeichert.</div>
-                        ) : (
-                          item.ownerShares.map((share) => (
-                            <div key={share.id} className="flex items-center justify-between">
-                              <span>
-                                {share.owner.name} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
-                              </span>
-                              <span className="font-medium">{share.shareAmount.toFixed(2)} €</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  {!editingItems && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="bg-muted/20">
+                        <div className="space-y-1 text-sm">
+                          <div className="font-medium">Owner-Anteile</div>
+                          {item.ownerShares.length === 0 ? (
+                            <div className="text-xs text-muted-foreground">Keine Anteile gespeichert.</div>
+                          ) : (
+                            item.ownerShares.map((share) => (
+                              <div key={share.id} className="flex items-center justify-between">
+                                <span>
+                                  {share.owner.name} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
+                                </span>
+                                <span className="font-medium">{share.shareAmount.toFixed(2)} €</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </Fragment>
               ))}
             </TableBody>

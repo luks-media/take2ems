@@ -115,7 +115,7 @@ export function SettingsMailCard({
           </form>
         ) : (
           <p className="text-xs text-muted-foreground pt-2 border-t">
-            Nur Administratoren koennen Test-Mails senden.
+            Nur Administratoren können Test-Mails senden.
           </p>
         )}
       </div>

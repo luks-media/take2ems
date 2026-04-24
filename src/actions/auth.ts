@@ -7,6 +7,7 @@ import { normalizeEmail } from '@/lib/email'
 import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { writeActivityLog } from '@/lib/activity-log'
 
 function getSecretKey() {
   const jwtSecret = process.env.JWT_SECRET?.trim()
@@ -102,11 +103,11 @@ export async function changeOwnPassword(formData: FormData) {
     const session = await decrypt(token)
     const id = session?.user?.id
     if (typeof id !== 'string') {
-      return { error: 'Ungueltige Session.' }
+      return { error: 'Ungültige Session.' }
     }
     userId = id
   } catch {
-    return { error: 'Session ungueltig.' }
+    return { error: 'Session ungültig.' }
   }
 
   const currentPassword = String(formData.get('currentPassword') ?? '')
@@ -120,7 +121,7 @@ export async function changeOwnPassword(formData: FormData) {
     return { error: `Neues Passwort mindestens ${MIN_PASSWORD_LEN} Zeichen.` }
   }
   if (newPassword !== confirmPassword) {
-    return { error: 'Neue Passwoerter stimmen nicht ueberein.' }
+    return { error: 'Neue Passwörter stimmen nicht überein.' }
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
@@ -136,6 +137,14 @@ export async function changeOwnPassword(formData: FormData) {
   await prisma.user.update({
     where: { id: userId },
     data: { password: await bcrypt.hash(newPassword, 10) },
+  })
+  await writeActivityLog({
+    actorId: userId,
+    entityType: 'user',
+    entityId: userId,
+    action: 'update',
+    message: 'Eigenes Passwort geändert',
+    details: { source: 'self-service' },
   })
 
   revalidatePath('/me')

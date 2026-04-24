@@ -3,6 +3,7 @@ import { DatabaseActions } from './DatabaseActions'
 import { SettingsMailCard } from './SettingsMailCard'
 import { SettingsAppForm } from './SettingsAppForm'
 import { SettingsGoogleCalendarCard } from './SettingsGoogleCalendarCard'
+import { SettingsActivityLogCard } from './SettingsActivityLogCard'
 import prisma from '@/lib/prisma'
 import { decrypt } from '@/actions/auth'
 import { getMailSetupSummary } from '@/lib/mail'
@@ -28,6 +29,7 @@ export default async function SettingsPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>
 }) {
+  const appVersion = process.env.npm_package_version || '1.0.0'
   const googleParam = typeof searchParams?.google === 'string' ? searchParams.google : undefined
   const googleMessage =
     typeof searchParams?.message === 'string' ? searchParams.message : undefined
@@ -127,7 +129,7 @@ export default async function SettingsPage({
           <SettingsAppForm initial={appSettings} />
         ) : (
           <div className="rounded-xl border bg-muted/20 p-6 text-sm text-muted-foreground">
-            PDF- und Ausleihe-Defaults koennen nur von Administratoren bearbeitet werden.
+            PDF- und Ausleihe-Defaults können nur von Administratoren bearbeitet werden.
           </div>
         )}
       </div>
@@ -138,8 +140,14 @@ export default async function SettingsPage({
         oauthCallbackUrl={oauthCallbackUrl}
         isAdmin={isAdmin}
       />
+
+      <SettingsActivityLogCard searchParams={searchParams} />
       
       <DatabaseActions isAdmin={isAdmin} />
+
+      <div className="pt-2 text-xs text-muted-foreground">
+        Version {appVersion}
+      </div>
     </div>
   )
 }

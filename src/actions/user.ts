@@ -10,6 +10,7 @@ import {
   requireAdmin,
   requireSessionUser,
 } from '@/lib/session'
+import { writeActivityLog } from '@/lib/activity-log'
 
 const userSelect = {
   id: true,
@@ -79,6 +80,14 @@ export async function createUser(data: { name: string, email: string, password?:
   })
 
   revalidatePath('/users')
+  await writeActivityLog({
+    actorId: actor.id,
+    entityType: 'user',
+    entityId: user.id,
+    action: 'create',
+    message: `Benutzer erstellt: ${user.name} (${user.email})`,
+    details: { role: user.role },
+  })
   return user
 }
 
@@ -161,6 +170,14 @@ export async function updateUser(
   })
 
   revalidatePath('/users')
+  await writeActivityLog({
+    actorId: actor.id,
+    entityType: 'user',
+    entityId: user.id,
+    action: 'update',
+    message: `Benutzer aktualisiert: ${user.name} (${user.email})`,
+    details: { role: user.role },
+  })
   return user
 }
 
@@ -201,6 +218,14 @@ export async function deleteUser(id: string) {
   try {
     await prisma.user.delete({ where: { id } })
     revalidatePath('/users')
+    await writeActivityLog({
+      actorId: actor.id,
+      entityType: 'user',
+      entityId: id,
+      action: 'delete',
+      message: `Benutzer gelöscht: ${user.name} (${user.email})`,
+      details: { role: user.role },
+    })
     return { success: true }
   } catch (error: any) {
     return {

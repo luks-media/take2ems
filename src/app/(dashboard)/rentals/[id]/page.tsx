@@ -1,4 +1,5 @@
 import { getRentalById } from '@/actions/rental'
+import { getEquipment } from '@/actions/equipment'
 import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
@@ -7,9 +8,10 @@ import { RentalDetailClient } from '@/components/rentals/RentalDetailClient'
 import { getSessionUserFromCookies } from '@/lib/session'
 
 export default async function RentalDetailPage({ params }: { params: { id: string } }) {
-  const [rental, sessionUser] = await Promise.all([
+  const [rental, sessionUser, equipment] = await Promise.all([
     getRentalById(params.id),
     getSessionUserFromCookies(),
+    getEquipment(),
   ])
   const canDelete = Boolean(
     sessionUser &&
@@ -33,7 +35,15 @@ export default async function RentalDetailPage({ params }: { params: { id: strin
       </div>
       
       <div className="rounded-md border p-6 max-w-4xl bg-card">
-        <RentalDetailClient rental={rental} canDelete={canDelete} />
+        <RentalDetailClient
+          rental={rental}
+          canDelete={canDelete}
+          equipmentOptions={equipment.map((item) => ({
+            id: item.id,
+            name: item.name,
+            equipmentCode: item.equipmentCode,
+          }))}
+        />
       </div>
     </div>
   )
