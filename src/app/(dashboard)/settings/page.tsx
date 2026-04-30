@@ -12,6 +12,8 @@ import { getAppOrigin } from '@/lib/app-origin'
 import { getGoogleCalendarEnvSummary } from '@/lib/google-calendar/summary'
 import { Euro, Users, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 async function getSessionUser() {
   const token = cookies().get('auth_session')?.value
@@ -29,7 +31,19 @@ export default async function SettingsPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>
 }) {
-  const appVersion = process.env.npm_package_version || '1.0.0'
+  let appVersion = process.env.npm_package_version || ''
+  if (!appVersion) {
+    try {
+      const packageJsonRaw = await readFile(join(process.cwd(), 'package.json'), 'utf-8')
+      const parsed = JSON.parse(packageJsonRaw) as { version?: string }
+      appVersion = parsed.version || ''
+    } catch {
+      appVersion = ''
+    }
+  }
+  if (!appVersion) {
+    appVersion = '1.0.0'
+  }
   const googleParam = typeof searchParams?.google === 'string' ? searchParams.google : undefined
   const googleMessage =
     typeof searchParams?.message === 'string' ? searchParams.message : undefined
