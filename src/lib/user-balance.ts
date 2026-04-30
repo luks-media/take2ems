@@ -49,7 +49,10 @@ export async function getUserBalancesMap(): Promise<Record<string, UserBalanceDe
         items: {
           include: {
             ownerShares: {
-              include: { owner: { select: { id: true, name: true } } },
+              include: {
+                owner: { select: { id: true, name: true } },
+                settlementOwner: { select: { id: true, name: true } },
+              },
             },
           },
         },
@@ -68,9 +71,10 @@ export async function getUserBalancesMap(): Promise<Record<string, UserBalanceDe
     const ownerTotals = new Map<string, number>()
     for (const item of rental.items) {
       for (const share of item.ownerShares) {
+        const effectiveOwnerId = share.settlementOwner?.id ?? share.ownerId
         const add = share.shareAmount
-        ownerTotals.set(share.ownerId, (ownerTotals.get(share.ownerId) || 0) + add)
-        totalOwnerIncome.set(share.ownerId, (totalOwnerIncome.get(share.ownerId) || 0) + add)
+        ownerTotals.set(effectiveOwnerId, (ownerTotals.get(effectiveOwnerId) || 0) + add)
+        totalOwnerIncome.set(effectiveOwnerId, (totalOwnerIncome.get(effectiveOwnerId) || 0) + add)
       }
     }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.1 - 2026-04-30
+
+### Fixed
+- Gesamtabrechnung/Salden: Umbuchungen von Owner-Anteilen werden jetzt auch in der user-basierten Saldo-Logik berücksichtigt (`effectiveOwner = settlementOwner ?? owner`).
+- Ausleihen speichern: Prisma-Relationen für Kunde/Bearbeiter in Create/Update auf `connect`/`disconnect` umgestellt, um Runtime-Fehler bei `customerId`/`userId` zu vermeiden.
+
 ## 2026-04-30
 
 ### Added
