@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
@@ -9,6 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -33,12 +41,13 @@ import {
   getSettlementTransferUsers,
   reassignOwnerShareForSettlement,
 } from '@/actions/rental'
-import { searchCustomers, type CustomerSearchHit } from '@/actions/customer'
+import { getCustomerChoices, searchCustomers, type CustomerChoice, type CustomerSearchHit } from '@/actions/customer'
 import { Equipment, Rental, RentalItem, RentalItemOwnerShare, User } from '@prisma/client'
-import { FileDown, ExternalLink } from 'lucide-react'
+import { FileDown, ExternalLink, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { EquipmentCategoryIcon } from '@/lib/equipment-category-icon'
 import { isNonBindingRentalStatus } from '@/lib/rental-statuses'
+import { buildOwnerSharesFromLots } from '@/lib/owner-share'
 
 function RentalItemNoteField({
   itemId,
@@ -89,19 +98,41 @@ function RentalItemNoteField({
 }
 
 type RentalWithItems = Rental & {
+  title?: string | null
   discountAmount?: number | null
   discountType?: string | null
   discountValue?: number | null
   user: { id: string; name: string; email: string } | null
   customer: { id: string; name: string } | null
   items: (RentalItem & {
-    equipment: Equipment
+    equipment: Equipment & {
+      ownershipLots: Array<{
+        id: string
+        label: string | null
+        units: number
+        shares: Array<{
+          ownerId: string
+          fraction: number
+          owner: { id: string; name: string }
+        }>
+      }>
+    }
     ownerShares: (RentalItemOwnerShare & {
       owner: User
       settlementOwner: User | null
       settlementReason: string | null
     })[]
   })[]
+}
+
+type DisplayShare = {
+  id: string
+  ownerId: string
+  ownerName: string
+  ownedUnitsAtRental: number
+  ownerFraction: number
+  shareAmount: number
+  settlementOwnerName: string | null
 }
 
 export function RentalDetailClient({
@@ -114,6 +145,61 @@ export function RentalDetailClient({
   canManageSettlement: boolean
 }) {
   const router = useRouter()
+  const displaySharesByItemId = useMemo(() => {
+    const byItemId = new Map<string, DisplayShare[]>()
+    const showDraftPreview = isNonBindingRentalStatus(rental.status)
+
+    for (const item of rental.items) {
+      if (item.ownerShares.length > 0) {
+        byItemId.set(
+          item.id,
+          item.ownerShares.map((share) => ({
+            id: share.id,
+            ownerId: share.ownerId,
+            ownerName: share.owner.name,
+            ownedUnitsAtRental: share.ownedUnitsAtRental,
+            ownerFraction: share.ownerFraction,
+            shareAmount: share.shareAmount,
+            settlementOwnerName: share.settlementOwner?.name ?? null,
+          }))
+        )
+        continue
+      }
+
+      if (!showDraftPreview || item.equipment.ownershipLots.length === 0) {
+        byItemId.set(item.id, [])
+        continue
+      }
+
+      const calculated = buildOwnerSharesFromLots({
+        rentalItemTotalPrice: item.totalPrice,
+        rentedQuantity: item.quantity,
+        lots: item.equipment.ownershipLots.map((lot) => ({
+          id: lot.id,
+          label: lot.label,
+          units: lot.units,
+          shares: lot.shares.map((share) => ({ ownerId: share.ownerId, fraction: share.fraction })),
+        })),
+        borrowerUserId: rental.userId ?? undefined,
+      })
+      const ownerNameById = new Map(
+        item.equipment.ownershipLots.flatMap((lot) => lot.shares.map((share) => [share.ownerId, share.owner.name]))
+      )
+      byItemId.set(
+        item.id,
+        calculated.map((share, index) => ({
+          id: `${item.id}-draft-${index}`,
+          ownerId: share.ownerId,
+          ownerName: ownerNameById.get(share.ownerId) ?? 'Unbekannt',
+          ownedUnitsAtRental: share.ownedUnitsAtRental,
+          ownerFraction: share.ownerFraction,
+          shareAmount: share.shareAmount,
+          settlementOwnerName: null,
+        }))
+      )
+    }
+    return byItemId
+  }, [rental])
   const baseTotal = rental.items.reduce((sum, item) => sum + item.dailyRate * item.quantity * rental.totalDays, 0)
   const discountAmount = Math.max(
     0,
@@ -126,19 +212,19 @@ export function RentalDetailClient({
       { ownerId: string; ownerName: string; amount: number; allocatedQuantity: number }
     >()
     for (const item of rental.items) {
-      for (const share of item.ownerShares) {
-        const effectiveOwnerId = share.settlementOwner?.id ?? share.ownerId
-        const effectiveOwnerName = share.settlementOwner?.name ?? share.owner.name
+      for (const share of displaySharesByItemId.get(item.id) ?? []) {
+        const effectiveOwnerId = share.ownerId
+        const effectiveOwnerName = share.settlementOwnerName ?? share.ownerName
         const existing = totals.get(effectiveOwnerId)
         if (existing) {
           existing.amount += share.shareAmount
-          existing.allocatedQuantity += share.allocatedQuantity
+          existing.allocatedQuantity += share.ownedUnitsAtRental
         } else {
           totals.set(effectiveOwnerId, {
             ownerId: effectiveOwnerId,
             ownerName: effectiveOwnerName,
             amount: share.shareAmount,
-            allocatedQuantity: share.allocatedQuantity,
+            allocatedQuantity: share.ownedUnitsAtRental,
           })
         }
       }
@@ -155,6 +241,9 @@ export function RentalDetailClient({
   const [custSelId, setCustSelId] = useState<string | null>(null)
   const [custSuggest, setCustSuggest] = useState<CustomerSearchHit[]>([])
   const [custSuggestOpen, setCustSuggestOpen] = useState(false)
+  const [custPickerOpen, setCustPickerOpen] = useState(false)
+  const [custPickerSearch, setCustPickerSearch] = useState('')
+  const [customerChoices, setCustomerChoices] = useState<CustomerChoice[]>([])
   const [custSaving, setCustSaving] = useState(false)
   const [custFormErr, setCustFormErr] = useState<string | null>(null)
   const [transferUsers, setTransferUsers] = useState<Array<{ id: string; name: string }>>([])
@@ -176,6 +265,7 @@ export function RentalDetailClient({
   function cancelCustomerEdit() {
     setEditingCustomer(false)
     setCustSuggestOpen(false)
+    setCustPickerOpen(false)
     setCustFormErr(null)
   }
 
@@ -191,6 +281,25 @@ export function RentalDetailClient({
     }, 200)
     return () => window.clearTimeout(t)
   }, [custName, editingCustomer])
+
+  useEffect(() => {
+    if (!editingCustomer || customerChoices.length > 0) return
+    void getCustomerChoices()
+      .then(setCustomerChoices)
+      .catch(() => setCustomerChoices([]))
+  }, [editingCustomer, customerChoices.length])
+
+  const filteredCustomerChoices = useMemo(() => {
+    const q = custPickerSearch.trim().toLowerCase()
+    if (!q) return customerChoices
+    return customerChoices.filter((c) => c.name.toLowerCase().includes(q))
+  }, [customerChoices, custPickerSearch])
+
+  const formatCustomerAddress = (c: CustomerChoice) => {
+    const line1 = [c.invoiceZip, c.invoiceCity].filter(Boolean).join(' ')
+    const parts = [c.invoiceStreet, line1, c.invoiceCountry].filter(Boolean)
+    return parts.length > 0 ? parts.join(', ') : null
+  }
 
   useEffect(() => {
     if (!canManageSettlement) return
@@ -284,26 +393,119 @@ export function RentalDetailClient({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="space-y-4">
           <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-1">Ausleihtitel</h3>
+            <p className="text-base">{rental.title?.trim() || '—'}</p>
+          </div>
+          <div>
             <h3 className="text-sm font-medium text-muted-foreground mb-1">Kunde / Projekt</h3>
             {editingCustomer ? (
               <div className="space-y-3 rounded-md border bg-muted/20 p-4">
                 <div className="relative space-y-2">
                   <Label htmlFor="rental-customer-edit">Name / Projekt</Label>
-                  <Input
-                    id="rental-customer-edit"
-                    autoComplete="off"
-                    value={custName}
-                    onChange={(e) => {
-                      setCustName(e.target.value)
-                      setCustSelId(null)
-                      setCustSuggestOpen(true)
-                    }}
-                    onFocus={() => setCustSuggestOpen(true)}
-                    onBlur={() => {
-                      window.setTimeout(() => setCustSuggestOpen(false), 180)
-                    }}
-                    placeholder="Kunde suchen oder neuen Namen eingeben"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="rental-customer-edit"
+                      autoComplete="off"
+                      value={custName}
+                      className="pr-11"
+                      onChange={(e) => {
+                        setCustName(e.target.value)
+                        setCustSelId(null)
+                        setCustSuggestOpen(true)
+                      }}
+                      onFocus={() => setCustSuggestOpen(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => setCustSuggestOpen(false), 180)
+                      }}
+                      placeholder="Kunde suchen oder neuen Namen eingeben"
+                    />
+                    <Dialog open={custPickerOpen} onOpenChange={setCustPickerOpen}>
+                      <DialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1 h-8 w-8 shrink-0 rounded-l-none border-l border-border/80"
+                          aria-label="Kunden auswählen"
+                          title="Kunden auswählen"
+                        >
+                          <UserIcon className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Kunde auswählen</DialogTitle>
+                          <DialogDescription>Bestehenden Kunden aus der Kachelansicht wählen.</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-3">
+                          <Input
+                            placeholder="Kunden durchsuchen..."
+                            value={custPickerSearch}
+                            onChange={(e) => setCustPickerSearch(e.target.value)}
+                          />
+                          <div className="max-h-[50vh] overflow-auto">
+                            {filteredCustomerChoices.length === 0 ? (
+                              <p className="py-8 text-center text-sm text-muted-foreground">Keine Kunden gefunden.</p>
+                            ) : (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {filteredCustomerChoices.map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    className={cn(
+                                      'rounded-lg border bg-card px-3 py-3 text-left transition-colors hover:bg-muted/40 hover:shadow-sm',
+                                      custSelId === c.id && 'border-primary/60 bg-primary/5'
+                                    )}
+                                    onClick={() => {
+                                      setCustName(c.name)
+                                      setCustSelId(c.id)
+                                      setCustPickerOpen(false)
+                                    }}
+                                  >
+                                    <div className="space-y-3">
+                                      <div className="font-medium leading-tight">{c.name}</div>
+                                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                        {c.contactPerson ? (
+                                          <span className="inline-flex items-center gap-1">
+                                            <UserIcon className="h-3.5 w-3.5" />
+                                            {c.contactPerson}
+                                          </span>
+                                        ) : null}
+                                        {c.email ? (
+                                          <span className="inline-flex max-w-full items-center gap-1 truncate">
+                                            <Mail className="h-3.5 w-3.5 shrink-0" />
+                                            {c.email}
+                                          </span>
+                                        ) : null}
+                                        {c.phone ? (
+                                          <span className="inline-flex items-center gap-1">
+                                            <Phone className="h-3.5 w-3.5" />
+                                            {c.phone}
+                                          </span>
+                                        ) : null}
+                                        {!c.contactPerson && !c.email && !c.phone ? (
+                                          <span>Keine Kontaktdaten hinterlegt</span>
+                                        ) : null}
+                                      </div>
+                                      <div className="rounded-md bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                                        <div className="mb-1 inline-flex items-center gap-1">
+                                          <MapPin className="h-3.5 w-3.5" />
+                                          Rechnungsadresse
+                                        </div>
+                                        <p className={formatCustomerAddress(c) ? 'text-foreground' : 'italic'}>
+                                          {formatCustomerAddress(c) ?? 'Nicht hinterlegt'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                   {custSuggestOpen && custSuggest.length > 0 && (
                     <ul
                       className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
@@ -333,6 +535,14 @@ export function RentalDetailClient({
                   Vorschlag wählen oder neuen Namen speichern (legt ggf. einen Kunden an). Feld leer speichern
                   entfernt den Kunden von dieser Ausleihe.
                 </p>
+                {custSelId ? (
+                  <Button variant="link" className="h-auto w-fit p-0 text-primary" asChild>
+                    <Link href={`/customers/${custSelId}`} className="inline-flex items-center gap-1 text-sm">
+                      Zur Kundendatenbank
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                ) : null}
                 {custFormErr && <p className="text-sm text-destructive">{custFormErr}</p>}
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={handleSaveCustomer} disabled={custSaving}>
@@ -421,8 +631,8 @@ export function RentalDetailClient({
         <div className="space-y-4">
           {isNonBindingRentalStatus(rental.status) && (
             <div className="rounded-md border border-amber-200/90 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-50">
-              Noch <strong>keine Exemplare reserviert</strong>. Status auf <strong>Ausstehend</strong> oder{' '}
-              <strong>Aktiv</strong> setzen, um verfügbare Stücke zuzuweisen (Bestand wird dann geprüft).
+              <strong>Keine Exemplare reserviert.</strong> Für Zuweisung Status auf <strong>Ausstehend</strong> oder{' '}
+              <strong>Aktiv</strong> setzen.
             </div>
           )}
           <div>
@@ -443,6 +653,32 @@ export function RentalDetailClient({
           <div>
             <h3 className="text-sm font-medium text-muted-foreground mb-1">ID</h3>
             <p className="text-xs font-mono text-muted-foreground">{rental.id}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-1">Owner-Anteile gesamt</h3>
+            {ownerShareTotals.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Keine Owner-Anteile vorhanden.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {ownerShareTotals.map((owner) => {
+                  const percent = rental.totalPrice > 0 ? ((owner.amount / rental.totalPrice) * 100).toFixed(1) : '0.0'
+                  return (
+                    <div
+                      key={owner.ownerId}
+                      className="rounded-md border bg-muted/20 px-3 py-2 text-sm"
+                    >
+                      <div className="truncate font-medium">{owner.ownerName}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {owner.allocatedQuantity.toFixed(2)} Stk · {percent}%
+                      </div>
+                      <div className="mt-1 text-base font-semibold tabular-nums">
+                        {owner.amount.toFixed(2)} €
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -509,24 +745,24 @@ export function RentalDetailClient({
                     <TableCell colSpan={7} className="bg-muted/20">
                       <div className="space-y-1 text-sm">
                         <div className="font-medium">Owner-Anteile</div>
-                        {item.ownerShares.length === 0 ? (
+                        {(displaySharesByItemId.get(item.id) ?? []).length === 0 ? (
                           <div className="text-xs text-muted-foreground">Keine Anteile gespeichert.</div>
                         ) : (
-                          item.ownerShares.map((share) => (
+                          (displaySharesByItemId.get(item.id) ?? []).map((share) => (
                             <div key={share.id} className="flex items-center justify-between">
                               <div className="min-w-0">
                                 <div>
-                                  {share.owner.name} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
-                                  {share.settlementOwner ? (
+                                  {share.ownerName} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
+                                  {share.settlementOwnerName ? (
                                     <span className="ml-2 text-xs text-amber-700">
-                                      Abrechnung an: {share.settlementOwner.name}
+                                      Abrechnung an: {share.settlementOwnerName}
                                     </span>
                                   ) : null}
                                 </div>
-                                {canManageSettlement && showSettlementReassignUi ? (
+                                {canManageSettlement && showSettlementReassignUi && item.ownerShares.length > 0 ? (
                                   <div className="mt-1 flex flex-wrap items-center gap-2">
                                     <Select
-                                      value={shareTargetById[share.id] ?? (share.settlementOwner?.id || '__ORIGINAL__')}
+                                      value={shareTargetById[share.id] ?? (item.ownerShares.find((s) => s.id === share.id)?.settlementOwner?.id || '__ORIGINAL__')}
                                       onValueChange={(value) =>
                                         setShareTargetById((prev) => ({ ...prev, [share.id]: value }))
                                       }
@@ -535,7 +771,7 @@ export function RentalDetailClient({
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="__ORIGINAL__">Original behalten ({share.owner.name})</SelectItem>
+                                        <SelectItem value="__ORIGINAL__">Original behalten ({share.ownerName})</SelectItem>
                                         {transferUsers.map((user) => (
                                           <SelectItem key={user.id} value={user.id}>
                                             {user.name}
@@ -566,42 +802,6 @@ export function RentalDetailClient({
               ))}
             </TableBody>
           </Table>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-semibold mb-3">Owner-Anteile gesamt</h3>
-        <div className="rounded-md border bg-card text-card-foreground shadow-sm">
-          {ownerShareTotals.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">
-              Keine Owner-Anteile für diese Ausleihe vorhanden.
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Zugeordnete Menge</TableHead>
-                  <TableHead>Anteil an Ausleihe</TableHead>
-                  <TableHead>Gesamtbetrag</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ownerShareTotals.map((owner) => {
-                  const percent =
-                    rental.totalPrice > 0 ? ((owner.amount / rental.totalPrice) * 100).toFixed(1) : '0.0'
-                  return (
-                    <TableRow key={owner.ownerId}>
-                      <TableCell className="font-medium">{owner.ownerName}</TableCell>
-                      <TableCell>{owner.allocatedQuantity.toFixed(2)}</TableCell>
-                      <TableCell>{percent} %</TableCell>
-                      <TableCell className="font-medium">{owner.amount.toFixed(2)} €</TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          )}
         </div>
       </div>
 

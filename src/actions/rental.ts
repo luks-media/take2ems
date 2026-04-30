@@ -85,6 +85,7 @@ export async function autoActivateDueRentals() {
 }
 
 export async function createRental(data: {
+  title?: string | null
   /** Ausgewählter Kunde aus der Datenbank (optional). */
   customerId?: string | null
   customerName?: string
@@ -260,8 +261,14 @@ export async function createRental(data: {
         ? data.borrowerNote.trim().slice(0, 4000)
         : null
 
+    const rentalTitle =
+      typeof data.title === 'string' && data.title.trim().length > 0
+        ? data.title.trim().slice(0, 200)
+        : null
+
     const createdRental = await tx.rental.create({
       data: {
+        title: rentalTitle,
         customer: resolvedCustomerId ? { connect: { id: resolvedCustomerId } } : undefined,
         customerName: resolvedCustomerName,
         borrowerNote,
@@ -334,6 +341,7 @@ export async function createRental(data: {
 
 export async function updateRentalFromCart(data: {
   rentalId: string
+  title?: string | null
   customerId?: string | null
   customerName?: string
   borrowerNote?: string | null
@@ -495,9 +503,15 @@ export async function updateRentalFromCart(data: {
         ? data.borrowerNote.trim().slice(0, 4000)
         : null
 
+    const rentalTitle =
+      typeof data.title === 'string' && data.title.trim().length > 0
+        ? data.title.trim().slice(0, 200)
+        : null
+
     const updatedRental = await tx.rental.update({
       where: { id: existing.id },
       data: {
+        title: rentalTitle,
         customer: resolvedCustomerId ? { connect: { id: resolvedCustomerId } } : { disconnect: true },
         customerName: resolvedCustomerName,
         borrowerNote,
@@ -561,7 +575,21 @@ export async function getRentals() {
       customer: { select: { id: true, name: true } },
       items: {
         include: {
-          equipment: true,
+          equipment: {
+            include: {
+              ownershipLots: {
+                include: {
+                  shares: {
+                    include: {
+                      owner: {
+                        select: { id: true, name: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           ownerShares: {
             include: { owner: true, settlementOwner: true }
           }
@@ -583,7 +611,21 @@ export async function getRentalById(id: string) {
       customer: { select: { id: true, name: true } },
       items: {
         include: {
-          equipment: true,
+          equipment: {
+            include: {
+              ownershipLots: {
+                include: {
+                  shares: {
+                    include: {
+                      owner: {
+                        select: { id: true, name: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           ownerShares: {
             include: { owner: true, settlementOwner: true }
           }

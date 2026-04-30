@@ -28,6 +28,20 @@ export default async function NewRentalPage({
   const borrowerChoices = canSelectBorrower
     ? allBorrowerChoices
     : allBorrowerChoices.filter((u) => u.id === defaultBorrowerId)
+  const customerChoices = await prisma.customer.findMany({
+    select: {
+      id: true,
+      name: true,
+      contactPerson: true,
+      email: true,
+      phone: true,
+      invoiceStreet: true,
+      invoiceZip: true,
+      invoiceCity: true,
+      invoiceCountry: true,
+    },
+    orderBy: { name: 'asc' },
+  })
 
   // We want to show all equipment, but gray out the ones that are fully booked for the selected dates.
   const instanceCounts = await prisma.equipmentInstance.groupBy({
@@ -83,6 +97,7 @@ export default async function NewRentalPage({
   const initialData =
     rentalToEdit && rentalToEdit.status !== 'RETURNED' && rentalToEdit.status !== 'CANCELLED'
       ? {
+          title: rentalToEdit.title ?? '',
           startDate: rentalToEdit.startDate.toISOString(),
           endDate: rentalToEdit.endDate.toISOString(),
           customerName: rentalToEdit.customerName ?? '',
@@ -121,6 +136,7 @@ export default async function NewRentalPage({
           totalRentableMap={totalRentableMap}
           activeBlocks={activeBlocks}
           borrowerChoices={borrowerChoices}
+          customerChoices={customerChoices}
           defaultBorrowerId={defaultBorrowerId}
           canSelectBorrower={canSelectBorrower}
           appPrefs={{

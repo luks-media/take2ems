@@ -109,6 +109,8 @@ model Rental {
   customerId            String?
   customer              Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerName          String?
+  /// Optionaler Titel der Ausleihe (interne Bezeichnung)
+  title                 String?
   /// Freie Notiz für den Ausleiher (wird u. a. auf der PDF-Checkliste angezeigt)
   borrowerNote          String?
   startDate             DateTime

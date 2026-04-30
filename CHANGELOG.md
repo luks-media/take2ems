@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.0.0 - 2026-04-30
+
+### Added
+- Neue Ausleihe: Kategoriegruppierte Equipment-Auswahl mit Kategorietrennern.
+- Neue Ausleihe: Kundenwahl als integrierter Picker in Kachelansicht sowie kompaktere Warenkorb-Zeilen mit Suchfunktion.
+- Dashboard: User-spezifisches ToDo-Board inkl. Teilen mit anderen Nutzern.
+- Ausleihen: Optionaler Ausleihtitel mit Fallback auf Kundenname in Listen/Details/PDF.
+- Ausleihen/Abrechnung: Umbuchung von Owner-Anteilen pro Ausleihe inkl. Kennzeichnung in der Zeilenansicht.
+
+### Changed
+- Dashboard: KPI-Titel und Darstellung verfeinert (u. a. "Umsatz <Monat>", zentrierte KPI-Werte, reduzierte Zusatztexte).
+- Layout/Navigation: Programmsidebar ist jetzt global einklappbar mit weicher Morph-Animation.
+- Neue Ausleihe: UI deutlich verdichtet (tighter Equipment-Container, schmalere Mengen-Controls, reduzierte Abstände, klarere Trennung der Bereiche).
+- Dashboard/Listen: Titelanzeige priorisiert nun `rental.title`, fallback bleibt `customerName`.
+- Settings: Versionsanzeige liest primär direkt aus `package.json`.
+
+### Fixed
+- Gesamtabrechnung/Salden berücksichtigen Umbuchungen von Owner-Anteilen konsistent über `effectiveOwner`.
+- Umsatzberechnung im Dashboard schließt Entwürfe (`DRAFT`) aus.
+- Prisma-Relationen beim Speichern von Ausleihen (`customer`, `user`) auf `connect`/`disconnect` korrigiert.
+- Fehlende Migrationen/Felder (u. a. `settlementOwnerId`, `title`, `borrowerNote`) stabilisiert und integriert.
+
 ## v1.2.2 - 2026-04-30
 
 ### Fixed

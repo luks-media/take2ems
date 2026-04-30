@@ -70,6 +70,7 @@ export function RentalCardGrid({ rentals }: { rentals: RentalListRowRental[] }) 
         {sorted.map((rental, index) => {
           const meta = rentalStatusDisplay(rental.status)
           const label =
+            rental.title?.trim() ||
             rental.customerName?.trim() ||
             (rental.user ? `Bearbeiter: ${rental.user.name}` : `Ausleihe ${rental.id.slice(0, 8)}…`)
 

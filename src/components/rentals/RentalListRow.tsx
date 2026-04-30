@@ -11,6 +11,7 @@ import { EquipmentCategoryIcon } from '@/lib/equipment-category-icon'
 
 export type RentalListRowRental = {
   id: string
+  title?: string | null
   customerName: string | null
   customer: { id: string; name: string } | null
   startDate: Date | string
@@ -38,6 +39,7 @@ export function RentalListRow({ rental }: { rental: RentalListRowRental }) {
   }
 
   const label =
+    rental.title?.trim() ||
     rental.customerName?.trim() ||
     (rental.user ? `Bearbeiter: ${rental.user.name}` : `Ausleihe ${rental.id}`)
 
@@ -58,10 +60,10 @@ export function RentalListRow({ rental }: { rental: RentalListRowRental }) {
               className="text-primary underline-offset-4 transition-colors duration-200 ease-out motion-reduce:transition-none hover:underline w-fit"
               onClick={(e) => e.stopPropagation()}
             >
-              {rental.customerName || rental.customer.name}
+              {rental.title?.trim() || rental.customerName || rental.customer.name}
             </Link>
           ) : (
-            <span>{rental.customerName || '—'}</span>
+            <span>{rental.title?.trim() || rental.customerName || '—'}</span>
           )}
           {rental.user ? (
             <span className="text-xs font-normal text-muted-foreground">Bearbeiter: {rental.user.name}</span>

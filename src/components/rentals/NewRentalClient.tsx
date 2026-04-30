@@ -10,10 +10,15 @@ import {
   ChevronDown,
   Search,
   Trash2,
+  FileText,
   ShoppingCart,
   Plus,
   Minus,
   Sparkles,
+  Mail,
+  MapPin,
+  Phone,
+  User,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -28,6 +33,14 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Calendar } from '@/components/ui/calendar'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import {
   Popover,
   PopoverContent,
@@ -44,6 +57,17 @@ export type NewRentalAppPrefs = {
 }
 
 export type BorrowerChoice = { id: string; name: string; email: string }
+export type CustomerChoice = {
+  id: string
+  name: string
+  contactPerson: string | null
+  email: string | null
+  phone: string | null
+  invoiceStreet: string | null
+  invoiceZip: string | null
+  invoiceCity: string | null
+  invoiceCountry: string | null
+}
 
 interface Props {
   equipment: Equipment[]
@@ -51,11 +75,13 @@ interface Props {
   totalRentableMap: Record<string, number> // equipmentId -> number of rentable instances
   activeBlocks: { equipmentId: string; startDate: string; endDate: string; quantity: number }[]
   borrowerChoices: BorrowerChoice[]
+  customerChoices: CustomerChoice[]
   defaultBorrowerId: string | null
   canSelectBorrower: boolean
   appPrefs: NewRentalAppPrefs
   editRentalId?: string
   initialData?: {
+    title: string
     startDate: string
     endDate: string
     customerName: string
@@ -87,6 +113,7 @@ export default function NewRentalClient({
   totalRentableMap,
   activeBlocks,
   borrowerChoices,
+  customerChoices,
   defaultBorrowerId,
   canSelectBorrower,
   appPrefs,
@@ -109,10 +136,13 @@ export default function NewRentalClient({
   })
   
   const [customerName, setCustomerName] = useState(initialData?.customerName || '')
+  const [rentalTitle, setRentalTitle] = useState(initialData?.title || '')
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(initialData?.customerId ?? null)
   const [borrowerNote, setBorrowerNote] = useState(initialData?.borrowerNote || '')
   const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSearchHit[]>([])
   const [customerSuggestOpen, setCustomerSuggestOpen] = useState(false)
+  const [customerPickerSearch, setCustomerPickerSearch] = useState('')
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false)
   const [borrowerUserId, setBorrowerUserId] = useState<string>(() => {
     if (initialData?.borrowerUserId) return initialData.borrowerUserId
     if (initialData?.borrowerUserId === null) return BORROWER_NONE
@@ -125,6 +155,9 @@ export default function NewRentalClient({
   /** Passend-dazu-Panel: Suchfeld nutzbar → standardmäßig aufgeklappt. */
   const [recommendationsPanelOpen, setRecommendationsPanelOpen] = useState(true)
   const [recommendationListSearch, setRecommendationListSearch] = useState('')
+  const [itemNoteOpenById, setItemNoteOpenById] = useState<Record<string, boolean>>({})
+  const [cartSearchTerm, setCartSearchTerm] = useState('')
+  const [cartSearchOpen, setCartSearchOpen] = useState(false)
 
   const hasSelectedRange = Boolean(dateRange.from && dateRange.to)
 
@@ -172,9 +205,28 @@ export default function NewRentalClient({
   }, [equipment, totalRentableMap, activeBlocks, dateRange.from, dateRange.to, hasSelectedRange])
 
   // Filter equipment by search; unavailable gear stays visible (gray) for clarity.
+  const categorySortIdByName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of equipment) {
+      const key = item.category || 'Ohne Kategorie'
+      const current = map.get(key)
+      if (!current || item.equipmentCode.localeCompare(current, 'de', { numeric: true }) < 0) {
+        map.set(key, item.equipmentCode)
+      }
+    }
+    return map
+  }, [equipment])
+
   const categories = useMemo(
-    () => Array.from(new Set(equipment.map((item) => item.category))).sort(),
-    [equipment]
+    () =>
+      Array.from(new Set(equipment.map((item) => item.category))).sort((a, b) => {
+        const aSortId = categorySortIdByName.get(a) ?? ''
+        const bSortId = categorySortIdByName.get(b) ?? ''
+        const bySortId = aSortId.localeCompare(bSortId, 'de', { numeric: true })
+        if (bySortId !== 0) return bySortId
+        return a.localeCompare(b, 'de')
+      }),
+    [equipment, categorySortIdByName]
   )
 
   const cartQuantityById = useMemo(() => {
@@ -263,25 +315,68 @@ export default function NewRentalClient({
   }, [cartRecommendationHints.length])
 
   const filteredEquipment = useMemo(() => {
-    return equipment.filter((item) => {
-      const availableQty = availableQuantityMap[item.id] || 0
-      const inCart = cartQuantityById[item.id] || 0
-      // Liste: Zeile erst ausblenden, wenn alle verfügbaren Stück im Warenkorb liegen
-      if (availableQty > 0 && inCart >= availableQty) return false
+    return equipment
+      .filter((item) => {
+        const availableQty = availableQuantityMap[item.id] || 0
+        const inCart = cartQuantityById[item.id] || 0
+        // Liste: Zeile erst ausblenden, wenn alle verfügbaren Stück im Warenkorb liegen
+        if (availableQty > 0 && inCart >= availableQty) return false
 
-      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            item.equipmentCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            item.category.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter
-      const remaining = Math.max(0, availableQty - inCart)
-      const matchesAvailability =
-        availabilityFilter === 'all' ||
-        (availabilityFilter === 'available' && remaining > 0) ||
-        (availabilityFilter === 'unavailable' && availableQty === 0)
+        const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                              item.equipmentCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              item.category.toLowerCase().includes(searchTerm.toLowerCase())
+        const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter
+        const remaining = Math.max(0, availableQty - inCart)
+        const matchesAvailability =
+          availabilityFilter === 'all' ||
+          (availabilityFilter === 'available' && remaining > 0) ||
+          (availabilityFilter === 'unavailable' && availableQty === 0)
 
-      return matchesSearch && matchesCategory && matchesAvailability
+        return matchesSearch && matchesCategory && matchesAvailability
+      })
+      .sort((a, b) => {
+        const aCategorySortId = categorySortIdByName.get(a.category || 'Ohne Kategorie') ?? ''
+        const bCategorySortId = categorySortIdByName.get(b.category || 'Ohne Kategorie') ?? ''
+        const byCategorySortId = aCategorySortId.localeCompare(bCategorySortId, 'de', { numeric: true })
+        if (byCategorySortId !== 0) return byCategorySortId
+        return a.equipmentCode.localeCompare(b.equipmentCode, 'de', { numeric: true })
+      })
+  }, [equipment, searchTerm, categoryFilter, availabilityFilter, availableQuantityMap, cartQuantityById, categorySortIdByName])
+
+  const groupedFilteredEquipment = useMemo(() => {
+    const groups = new Map<string, Equipment[]>()
+    for (const item of filteredEquipment) {
+      const key = item.category || 'Ohne Kategorie'
+      const arr = groups.get(key) ?? []
+      arr.push(item)
+      groups.set(key, arr)
+    }
+    return Array.from(groups.entries())
+      .sort(([aCategory], [bCategory]) => {
+        const aSortId = categorySortIdByName.get(aCategory) ?? ''
+        const bSortId = categorySortIdByName.get(bCategory) ?? ''
+        const bySortId = aSortId.localeCompare(bSortId, 'de', { numeric: true })
+        if (bySortId !== 0) return bySortId
+        return aCategory.localeCompare(bCategory, 'de')
+      })
+      .map(([category, items]) => ({ category, items }))
+  }, [filteredEquipment, categorySortIdByName])
+
+  const filteredCart = useMemo(() => {
+    const q = cartSearchTerm.trim().toLowerCase()
+    if (!q) return cart
+    return cart.filter((item) => {
+      const nextRental = nextRentalsMap[item.equipment.id]
+      const nextDate = nextRental ? format(new Date(nextRental), 'dd.MM.yyyy').toLowerCase() : ''
+      return (
+        item.equipment.name.toLowerCase().includes(q) ||
+        item.equipment.equipmentCode.toLowerCase().includes(q) ||
+        item.equipment.category.toLowerCase().includes(q) ||
+        item.note.toLowerCase().includes(q) ||
+        nextDate.includes(q)
+      )
     })
-  }, [equipment, searchTerm, categoryFilter, availabilityFilter, availableQuantityMap, cartQuantityById])
+  }, [cart, cartSearchTerm, nextRentalsMap])
 
   useEffect(() => {
     setCart((prev) =>
@@ -340,6 +435,18 @@ export default function NewRentalClient({
     setSelectedCustomerId(hit.id)
     setCustomerSuggestions([])
     setCustomerSuggestOpen(false)
+  }
+
+  const filteredCustomerChoices = useMemo(() => {
+    const q = customerPickerSearch.trim().toLowerCase()
+    if (!q) return customerChoices
+    return customerChoices.filter((c) => c.name.toLowerCase().includes(q))
+  }, [customerChoices, customerPickerSearch])
+
+  const formatCustomerAddress = (c: CustomerChoice) => {
+    const line1 = [c.invoiceZip, c.invoiceCity].filter(Boolean).join(' ')
+    const parts = [c.invoiceStreet, line1, c.invoiceCountry].filter(Boolean)
+    return parts.length > 0 ? parts.join(', ') : null
   }
 
   const handleAddToCart = (item: Equipment) => {
@@ -479,6 +586,7 @@ export default function NewRentalClient({
     setIsSubmitting(true)
     try {
       const payload = {
+        title: rentalTitle || undefined,
         customerId: selectedCustomerId ?? undefined,
         customerName: customerName || undefined,
         borrowerNote: borrowerNote || undefined,
@@ -528,11 +636,11 @@ export default function NewRentalClient({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b bg-muted/20 px-4 py-3">
+      <div className="shrink-0 border-b bg-muted/35 px-4 py-3">
         <button
           type="button"
           onClick={() => setDetailsExpanded((open) => !open)}
-          className="flex w-full items-start gap-3 rounded-lg px-1 py-1 text-left outline-none ring-offset-background transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex w-full items-start gap-3 rounded-lg px-1 py-1 text-left outline-none ring-offset-background transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring"
           aria-expanded={detailsExpanded}
           aria-controls="new-rental-details-panel"
         >
@@ -562,6 +670,17 @@ export default function NewRentalClient({
         >
           <div className="min-h-0 overflow-hidden">
             <div className="grid gap-4 pb-1 pt-3 md:grid-cols-2">
+          <div className="grid gap-2 md:col-span-2">
+            <Label htmlFor="rental-title">Ausleihtitel (optional)</Label>
+            <Input
+              id="rental-title"
+              placeholder="z. B. Dreh Berlin Mai / Konzertpaket"
+              value={rentalTitle}
+              maxLength={200}
+              onChange={(e) => setRentalTitle(e.target.value)}
+            />
+          </div>
+
           <div className="grid gap-2 md:col-span-2">
             <Label>Zeitraum</Label>
             <Popover>
@@ -605,15 +724,6 @@ export default function NewRentalClient({
                 />
               </PopoverContent>
             </Popover>
-            {!hasSelectedRange && (
-              <p className="text-xs text-muted-foreground">
-                Wähle zuerst den Zeitraum, damit die Liste die korrekten Verfügbarkeiten anzeigt.
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Mindest-Mietdauer laut Einstellungen: {appPrefs.minRentalDays}{' '}
-              {appPrefs.minRentalDays === 1 ? 'Tag' : 'Tage'}.
-            </p>
           </div>
 
           <div className="grid gap-2">
@@ -633,10 +743,6 @@ export default function NewRentalClient({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  Steuert Eigentümer-Anteile und den virtuellen Kontostand. Ohne Auswahl keine interne Zuordnung (Kunde /
-                  Projekt reicht dann nur als Freitext).
-                </p>
               </>
             ) : (
               <>
@@ -653,20 +759,111 @@ export default function NewRentalClient({
           <div className="grid gap-2">
             <Label htmlFor="customer">Kunde / Projekt (optional)</Label>
             <div className="relative">
-              <Input
-                id="customer"
-                placeholder="z.B. Mustermann GmbH"
-                autoComplete="off"
-                value={customerName}
-                onChange={(e) => {
-                  handleCustomerInputChange(e.target.value)
-                  setCustomerSuggestOpen(true)
-                }}
-                onFocus={() => setCustomerSuggestOpen(true)}
-                onBlur={() => {
-                  window.setTimeout(() => setCustomerSuggestOpen(false), 180)
-                }}
-              />
+              <div className="relative">
+                <Input
+                  id="customer"
+                  placeholder="z.B. Mustermann GmbH"
+                  autoComplete="off"
+                  value={customerName}
+                  className="pr-11"
+                  onChange={(e) => {
+                    handleCustomerInputChange(e.target.value)
+                    setCustomerSuggestOpen(true)
+                  }}
+                  onFocus={() => setCustomerSuggestOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setCustomerSuggestOpen(false), 180)
+                  }}
+                />
+                <Dialog open={customerPickerOpen} onOpenChange={setCustomerPickerOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1 h-8 w-8 shrink-0 rounded-l-none border-l border-border/80"
+                      aria-label="Kunden auswählen"
+                      title="Kunden auswählen"
+                    >
+                      <User className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Kunde auswählen</DialogTitle>
+                      <DialogDescription>
+                        Bestehenden Kunden aus der Kachelansicht wählen.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <Input
+                        placeholder="Kunden durchsuchen..."
+                        value={customerPickerSearch}
+                        onChange={(e) => setCustomerPickerSearch(e.target.value)}
+                      />
+                      <div className="max-h-[50vh] overflow-auto">
+                        {filteredCustomerChoices.length === 0 ? (
+                          <p className="py-8 text-center text-sm text-muted-foreground">Keine Kunden gefunden.</p>
+                        ) : (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {filteredCustomerChoices.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className={cn(
+                                  'rounded-lg border bg-card px-3 py-3 text-left transition-colors hover:bg-muted/40 hover:shadow-sm',
+                                  selectedCustomerId === c.id && 'border-primary/60 bg-primary/5'
+                                )}
+                                onClick={() => {
+                                  setCustomerName(c.name)
+                                  setSelectedCustomerId(c.id)
+                                  setCustomerPickerOpen(false)
+                                }}
+                              >
+                                <div className="space-y-3">
+                                  <div className="font-medium leading-tight">{c.name}</div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                    {c.contactPerson ? (
+                                      <span className="inline-flex items-center gap-1">
+                                        <User className="h-3.5 w-3.5" />
+                                        {c.contactPerson}
+                                      </span>
+                                    ) : null}
+                                    {c.email ? (
+                                      <span className="inline-flex max-w-full items-center gap-1 truncate">
+                                        <Mail className="h-3.5 w-3.5 shrink-0" />
+                                        {c.email}
+                                      </span>
+                                    ) : null}
+                                    {c.phone ? (
+                                      <span className="inline-flex items-center gap-1">
+                                        <Phone className="h-3.5 w-3.5" />
+                                        {c.phone}
+                                      </span>
+                                    ) : null}
+                                    {!c.contactPerson && !c.email && !c.phone ? (
+                                      <span>Keine Kontaktdaten hinterlegt</span>
+                                    ) : null}
+                                  </div>
+                                  <div className="rounded-md bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                                    <div className="mb-1 inline-flex items-center gap-1">
+                                      <MapPin className="h-3.5 w-3.5" />
+                                      Rechnungsadresse
+                                    </div>
+                                    <p className={formatCustomerAddress(c) ? 'text-foreground' : 'italic'}>
+                                      {formatCustomerAddress(c) ?? 'Nicht hinterlegt'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
               {customerSuggestOpen && customerSuggestions.length > 0 && (
                 <ul
                   className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
@@ -687,10 +884,6 @@ export default function NewRentalClient({
                 </ul>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Vorschläge aus der Kundendatenbank. Beim Speichern wird die Ausleihe mit dem Kunden verknüpft (Auswahl
-              oder gleicher Name); neue Namen legen einen Kunden an.
-            </p>
           </div>
 
           <div className="grid gap-2 md:col-span-2">
@@ -796,86 +989,97 @@ export default function NewRentalClient({
             {filteredEquipment.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">Kein Equipment gefunden.</p>
             ) : (
-              filteredEquipment.map((item) => (
-                (() => {
-                  const peerIds = getRecommendationPeerIds(item.id)
-                  const peerNamesHint =
-                    peerIds
-                      ?.filter((pid) => pid !== item.id)
-                      .map((pid) => equipmentById.get(pid)?.name)
-                      .filter((n): n is string => Boolean(n?.trim()))
-                      .join(' · ') ?? ''
-                  const availableQty = availableQuantityMap[item.id] || 0
-                  const inCart = cartQuantityById[item.id] || 0
-                  const remaining = Math.max(0, availableQty - inCart)
-                  const isUnavailable = hasSelectedRange && availableQty === 0
-                  const isDisabled = !hasSelectedRange || isUnavailable || remaining === 0
+              groupedFilteredEquipment.map((group) => (
+                <div key={group.category} className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <div className="h-px flex-1 bg-border" />
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group.category}
+                    </div>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  {group.items.map((item) => (
+                    (() => {
+                      const peerIds = getRecommendationPeerIds(item.id)
+                      const peerNamesHint =
+                        peerIds
+                          ?.filter((pid) => pid !== item.id)
+                          .map((pid) => equipmentById.get(pid)?.name)
+                          .filter((n): n is string => Boolean(n?.trim()))
+                          .join(' · ') ?? ''
+                      const availableQty = availableQuantityMap[item.id] || 0
+                      const inCart = cartQuantityById[item.id] || 0
+                      const remaining = Math.max(0, availableQty - inCart)
+                      const isUnavailable = hasSelectedRange && availableQty === 0
+                      const isDisabled = !hasSelectedRange || isUnavailable || remaining === 0
 
-                  return (
-                <div 
-                  key={item.id} 
-                  className={cn(
-                    "flex items-center justify-between rounded-lg border bg-card p-3 shadow-sm transition-colors",
-                    isDisabled
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:border-primary cursor-pointer"
-                  )}
-                  onClick={() => {
-                    if (!isDisabled) {
-                      handleAddToCart(item)
-                    }
-                  }}
-                >
-                  <div className="flex min-w-0 flex-1 items-start gap-2 pr-2">
-                    <EquipmentCategoryIcon
-                      category={item.category}
-                      className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-                    />
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 font-semibold">
-                        {peerIds && (
-                          <span
-                            className="inline-flex items-center gap-0.5 rounded border border-dashed border-amber-500/40 bg-amber-500/5 px-1 py-0 text-[10px] font-medium uppercase tracking-wide text-amber-900/80 dark:text-amber-200/90"
-                            title="Ausleih-Empfehlung: oft passend dazu, freiwillig buchbar"
-                          >
-                            <Sparkles className="h-3 w-3" aria-hidden />
-                            Empfehlung
-                          </span>
-                        )}
-                        <span>{item.name}</span>
-                      </div>
-                      <div className="text-sm text-muted-foreground">{item.equipmentCode} • {item.category}</div>
-                      {peerNamesHint ? (
-                        <p
-                          className="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
-                          title={`Oft dazu: ${peerNamesHint}`}
-                        >
-                          Oft dazu: {peerNamesHint}
-                        </p>
-                      ) : null}
-                      {item.internalNote?.trim() && (
-                        <div
-                          className="mt-1 line-clamp-2 text-xs text-amber-800/90 dark:text-amber-400/85"
-                          title={item.internalNote}
-                        >
-                          {item.internalNote}
-                        </div>
+                      return (
+                    <div 
+                      key={item.id} 
+                      className={cn(
+                        "flex items-center justify-between rounded-md border bg-card px-2.5 py-2 shadow-sm transition-colors",
+                        isDisabled
+                          ? "opacity-50 cursor-not-allowed"
+                          : "hover:border-primary cursor-pointer"
                       )}
+                      onClick={() => {
+                        if (!isDisabled) {
+                          handleAddToCart(item)
+                        }
+                      }}
+                    >
+                      <div className="flex min-w-0 flex-1 items-start gap-1.5 pr-2">
+                        <EquipmentCategoryIcon
+                          category={item.category}
+                          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1 font-semibold leading-tight">
+                            {peerIds && (
+                              <span
+                                className="inline-flex items-center gap-0.5 rounded border border-dashed border-amber-500/40 bg-amber-500/5 px-1 py-0 text-[10px] font-medium uppercase tracking-wide text-amber-900/80 dark:text-amber-200/90"
+                                title="Ausleih-Empfehlung: oft passend dazu, freiwillig buchbar"
+                              >
+                                <Sparkles className="h-3 w-3" aria-hidden />
+                                Empfehlung
+                              </span>
+                            )}
+                            <span>{item.name}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">{item.equipmentCode} • {item.category}</div>
+                          {peerNamesHint ? (
+                            <p
+                              className="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
+                              title={`Oft dazu: ${peerNamesHint}`}
+                            >
+                              Oft dazu: {peerNamesHint}
+                            </p>
+                          ) : null}
+                          {item.internalNote?.trim() && (
+                            <div
+                              className="mt-1 line-clamp-2 text-xs text-amber-800/90 dark:text-amber-400/85"
+                              title={item.internalNote}
+                            >
+                              {item.internalNote}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-medium">{item.dailyRate} € / Tag</div>
+                        <div className={cn("text-xs", isUnavailable ? "text-destructive" : "text-muted-foreground")}>
+                          {!hasSelectedRange
+                            ? 'Datum wählen'
+                            : inCart > 0
+                              ? `Noch verfügbar: ${remaining}`
+                              : `Verfügbar: ${availableQty}`}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium">{item.dailyRate} € / Tag</div>
-                    <div className={cn("text-xs", isUnavailable ? "text-destructive" : "text-muted-foreground")}>
-                      {!hasSelectedRange
-                        ? 'Datum wählen'
-                        : inCart > 0
-                          ? `Noch verfügbar: ${remaining}`
-                          : `Verfügbar: ${availableQty}`}
-                    </div>
-                  </div>
+                      )
+                    })()
+                  ))}
                 </div>
-                  )
-                })()
               ))
             )}
           </div>
@@ -887,7 +1091,37 @@ export default function NewRentalClient({
         <div className="flex shrink-0 items-center gap-2 border-b p-4">
           <ShoppingCart className="h-5 w-5" />
           <h3 className="font-semibold">Warenkorb</h3>
-          <span className="ml-auto rounded-full bg-primary px-2 py-1 text-xs text-primary-foreground">{cartTotalItems}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <div
+              className={cn(
+                'overflow-hidden transition-[width,opacity] duration-200 ease-out',
+                cartSearchOpen ? 'w-56 opacity-100' : 'w-0 opacity-0'
+              )}
+            >
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Warenkorb durchsuchen..."
+                  className="h-8 bg-background pl-8 text-sm"
+                  value={cartSearchTerm}
+                  onChange={(e) => setCartSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn('h-8 w-8', cartSearchOpen && 'bg-muted')}
+              onClick={() => setCartSearchOpen((prev) => !prev)}
+              aria-label="Warenkorb-Suche ein- oder ausblenden"
+              title="Warenkorb durchsuchen"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+            <span className="rounded-full bg-primary px-2 py-1 text-xs text-primary-foreground">{cartTotalItems}</span>
+          </div>
         </div>
 
         <ScrollArea className="min-h-0 flex-1 p-4">
@@ -901,89 +1135,121 @@ export default function NewRentalClient({
             <div className="grid gap-2">
                 {cart.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Warenkorb ist leer.</p>
+                ) : filteredCart.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Keine Treffer im Warenkorb.</p>
                 ) : (
                   <>
-                  {cart.map((item) => (
-                    <div key={item.equipment.id} className="flex flex-col gap-2 rounded-md border p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex min-w-0 flex-1 items-start gap-2 pr-4">
-                          <EquipmentCategoryIcon
-                            category={item.equipment.category}
-                            className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-                          />
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium">{item.equipment.name}</div>
-                            <div className="text-xs text-muted-foreground">{item.equipment.dailyRate} €/Tag pro Stück</div>
-                            {item.equipment.internalNote?.trim() && (
-                              <div
-                                className="mt-1 line-clamp-2 text-xs text-amber-800/90 dark:text-amber-400/85"
-                                title={item.equipment.internalNote}
-                              >
-                                {item.equipment.internalNote}
-                              </div>
-                            )}
-                            {nextRentalsMap[item.equipment.id] && (
-                              <div className="mt-1 text-xs font-medium text-orange-500">
-                                Nächste Ausleihe: {format(new Date(nextRentalsMap[item.equipment.id]), 'dd.MM.yyyy')}
-                              </div>
-                            )}
+                  {filteredCart.map((item) => {
+                    const noteOpen = itemNoteOpenById[item.equipment.id] || false
+                    const hasNote = item.note.trim().length > 0
+                    return (
+                      <div key={item.equipment.id} className="rounded-md border px-2 py-1.5">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <EquipmentCategoryIcon
+                              category={item.equipment.category}
+                              className="h-4 w-4 shrink-0 text-muted-foreground"
+                            />
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">{item.equipment.name}</div>
+                              {nextRentalsMap[item.equipment.id] ? (
+                                <div className="truncate text-[11px] text-muted-foreground">
+                                  Nächste Ausleihe: {format(new Date(nextRentalsMap[item.equipment.id]), 'dd.MM.yyyy')}
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive -mt-1 -mr-1" onClick={() => handleRemoveFromCart(item.equipment.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      
-                      <div className="flex items-center justify-between mt-1">
-                        <div className="flex items-center gap-2 border rounded-md p-1">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
-                            onClick={() => handleUpdateQuantity(item.equipment.id, -1)}
-                            disabled={item.quantity <= 1}
+                          {(availableQuantityMap[item.equipment.id] || 0) > 1 ? (
+                            <div className="flex w-[86px] justify-self-end items-center justify-center gap-0.5 rounded-md border p-0.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={() => handleUpdateQuantity(item.equipment.id, -1)}
+                                disabled={item.quantity <= 1}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <span className="w-3.5 text-center text-xs font-medium">{item.quantity}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={() => handleUpdateQuantity(item.equipment.id, 1)}
+                                disabled={item.quantity >= (availableQuantityMap[item.equipment.id] || 0)}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : null}
+                          <div className="w-[120px] text-right text-sm font-medium tabular-nums">
+                            {((item.equipment.dailyRate || 0) * item.quantity).toFixed(2)} € / Tag
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              'h-7 w-7',
+                              hasNote ? 'text-emerald-600 hover:text-emerald-700' : 'text-muted-foreground'
+                            )}
+                            title="Notiz"
+                            aria-label="Notiz ein- oder ausklappen"
+                            onClick={() =>
+                              setItemNoteOpenById((prev) => ({
+                                ...prev,
+                                [item.equipment.id]: !noteOpen,
+                              }))
+                            }
                           >
-                            <Minus className="h-3 w-3" />
+                            <FileText className="h-4 w-4" />
                           </Button>
-                          <span className="text-sm w-4 text-center font-medium">{item.quantity}</span>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
-                            onClick={() => handleUpdateQuantity(item.equipment.id, 1)}
-                            disabled={item.quantity >= (availableQuantityMap[item.equipment.id] || 0)}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            onClick={() => handleRemoveFromCart(item.equipment.id)}
                           >
-                            <Plus className="h-3 w-3" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        <div className="text-sm font-medium">
-                          {((item.equipment.dailyRate || 0) * item.quantity).toFixed(2)} € / Tag
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Notiz zu dieser Position</Label>
-                        <textarea
-                          className={cn(
-                            'flex min-h-[56px] w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm',
-                            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+                        <div className="mt-1.5 flex items-center gap-2">
+                          {hasNote ? <span className="text-[11px] text-emerald-600">Notiz vorhanden</span> : null}
+                          {item.equipment.internalNote?.trim() && (
+                            <span
+                              className="line-clamp-1 text-[11px] text-amber-800/90 dark:text-amber-400/85"
+                              title={item.equipment.internalNote}
+                            >
+                              Artikel-Notiz: {item.equipment.internalNote}
+                            </span>
                           )}
-                          placeholder="Optional, z. B. Zubehör, Zustand, Hinweise…"
-                          maxLength={2000}
-                          rows={2}
-                          value={item.note}
-                          onChange={(e) =>
-                            setCart((prev) =>
-                              prev.map((c) =>
-                                c.equipment.id === item.equipment.id
-                                  ? { ...c, note: e.target.value }
-                                  : c
-                              )
-                            )
-                          }
-                        />
+                        </div>
+                        {noteOpen ? (
+                          <div className="mt-1.5 space-y-1">
+                            <Label className="text-xs text-muted-foreground">Notiz zu dieser Position</Label>
+                            <textarea
+                              className={cn(
+                                'flex min-h-[48px] w-full rounded-md border border-input bg-background px-2 py-1 text-sm',
+                                'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                              )}
+                              placeholder="Optional, z. B. Zubehör, Zustand, Hinweise…"
+                              maxLength={2000}
+                              rows={2}
+                              value={item.note}
+                              onChange={(e) =>
+                                setCart((prev) =>
+                                  prev.map((c) =>
+                                    c.equipment.id === item.equipment.id ? { ...c, note: e.target.value } : c
+                                  )
+                                )
+                              }
+                            />
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {cartRecommendationHints.length > 0 && (
                     <div className="rounded-md border border-dashed border-muted-foreground/30 bg-muted/25">
                       <button
@@ -1134,10 +1400,6 @@ export default function NewRentalClient({
           >
             Als Entwurf speichern
           </Button>
-          <p className="text-center text-[11px] text-muted-foreground">
-            Entwürfe reservieren <strong>keinen</strong> Bestand. Beim späteren Wechsel zu „Ausstehend“ werden
-            Exemplare zugewiesen.
-          </p>
         </div>
       </div>
       </div>

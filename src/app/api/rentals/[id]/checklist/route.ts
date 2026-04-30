@@ -76,6 +76,7 @@ function groupItemsByLocation(items: RentalItemRow[]) {
 
 function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: PdfBranding) {
   const today = formatDate(new Date())
+  const rentalTitle = escapeHtml(rental.title?.trim() || rental.customerName?.trim() || 'Nicht angegeben')
   const customerName = escapeHtml(rental.customerName?.trim() || 'Nicht angegeben')
   const borrowerName = escapeHtml(rental.user?.name || 'Unbekannt')
   const borrowerEmail = escapeHtml(rental.user?.email || '-')
@@ -350,6 +351,10 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
     </div>
 
     <div class="meta-grid">
+      <div class="meta-card">
+        <div class="meta-label">Ausleihtitel</div>
+        <div class="meta-value">${rentalTitle}</div>
+      </div>
       <div class="meta-card">
         <div class="meta-label">Kunde / Projekt</div>
         <div class="meta-value">${customerName}</div>

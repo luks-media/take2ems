@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma'
 import { endOfMonth, format, startOfMonth } from 'date-fns'
+import { de } from 'date-fns/locale'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -55,6 +56,8 @@ export default async function Home() {
   const now = new Date()
   const monthStart = startOfMonth(now)
   const monthEnd = endOfMonth(now)
+  const currentMonthWord = format(now, 'LLLL', { locale: de })
+  const currentMonthLabel = currentMonthWord.charAt(0).toUpperCase() + currentMonthWord.slice(1)
 
   const liveActiveRentalWhere = {
     status: 'ACTIVE' as const,
@@ -64,7 +67,6 @@ export default async function Home() {
   const [
     sessionUser,
     totalEquipment,
-    totalUsers,
     totalInstances,
     rentableInstances,
     maintenanceInstances,
@@ -77,7 +79,6 @@ export default async function Home() {
   ] = await Promise.all([
     getSessionUserFromCookies(),
     prisma.equipment.count(),
-    prisma.user.count(),
     prisma.equipmentInstance.count(),
     prisma.equipmentInstance.count({
       where: { status: { notIn: ['BROKEN', 'MAINTENANCE'] } }
@@ -169,7 +170,7 @@ export default async function Home() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className={kpiCardClass}>
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Package2 className="h-4 w-4" />Equipment</h2>
-          <p className="text-3xl font-bold mt-2">{totalEquipment}</p>
+          <p className="mt-2 text-center text-3xl font-bold">{totalEquipment}</p>
           <p className="text-xs text-muted-foreground mt-1">{totalInstances} Instanzen</p>
           <p className="text-xs text-muted-foreground mt-1">{currency.format(equipmentValue)} Gesamtwert</p>
         </Card>
@@ -188,7 +189,7 @@ export default async function Home() {
               <CalendarCheck2 className="h-4 w-4" />
               Aktive Ausleihen
             </h2>
-            <p className="text-3xl font-bold mt-2">{activeRentalCount}</p>
+            <p className="mt-2 text-center text-3xl font-bold">{activeRentalCount}</p>
             <p className="text-xs text-muted-foreground mt-1">
               {liveActiveBlockedInstances} Instanzen aktiv im Zeitraum
             </p>
@@ -205,18 +206,16 @@ export default async function Home() {
           )}
         >
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Wrench className="h-4 w-4" />Verfügbar</h2>
-          <p className="text-3xl font-bold mt-2">{availableInstances}</p>
+          <p className="mt-2 text-center text-3xl font-bold">{availableInstances}</p>
           <p className="text-xs text-muted-foreground mt-1">{utilization}% Auslastung</p>
         </Card>
         <Card className={kpiCardClass}>
-          <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Euro className="h-4 w-4" />Umsatz (Monat)</h2>
-          <p className="text-3xl font-bold mt-2">{monthlyRevenue.toFixed(2)} €</p>
-          <p className="text-xs text-muted-foreground mt-1">{format(monthStart, 'MM.yyyy')}</p>
+          <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Euro className="h-4 w-4" />Umsatz {currentMonthLabel}</h2>
+          <p className="mt-2 text-center text-3xl font-bold">{monthlyRevenue.toFixed(2)} €</p>
         </Card>
         <Card className={cn(kpiCardClass, overdueRentals.length > 0 && 'border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20')}>
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Überfällig</h2>
-          <p className="text-3xl font-bold mt-2">{overdueRentals.length}</p>
-          <p className="text-xs text-muted-foreground mt-1">{totalUsers} Benutzer im System</p>
+          <p className="mt-2 text-center text-3xl font-bold">{overdueRentals.length}</p>
         </Card>
       </div>
 
@@ -242,7 +241,7 @@ export default async function Home() {
                   >
                     <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        {rental.customerName || 'Unbekannt'}
+                        {rental.title?.trim() || rental.customerName || 'Unbekannt'}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {format(new Date(rental.startDate), 'dd.MM.yyyy')} - {format(new Date(rental.endDate), 'dd.MM.yyyy')}

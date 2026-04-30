@@ -7,6 +7,17 @@ import { requireSessionUser } from '@/lib/session'
 import { writeActivityLog } from '@/lib/activity-log'
 
 export type CustomerSearchHit = { id: string; name: string }
+export type CustomerChoice = {
+  id: string
+  name: string
+  contactPerson: string | null
+  email: string | null
+  phone: string | null
+  invoiceStreet: string | null
+  invoiceZip: string | null
+  invoiceCity: string | null
+  invoiceCountry: string | null
+}
 
 /** Kunden für Autocomplete (Ausleihe). Nur für angemeldete Nutzer. */
 export async function searchCustomers(query: string): Promise<CustomerSearchHit[]> {
@@ -26,6 +37,25 @@ export async function searchCustomers(query: string): Promise<CustomerSearchHit[
   return prisma.$queryRaw<CustomerSearchHit[]>(
     Prisma.sql`SELECT id, name FROM Customer WHERE LOWER(name) LIKE LOWER(${pattern}) ORDER BY name ASC LIMIT 20`
   )
+}
+
+/** Vollständige Kundenauswahl für Kachel-Picker in Formularen. */
+export async function getCustomerChoices(): Promise<CustomerChoice[]> {
+  await requireSessionUser()
+  return prisma.customer.findMany({
+    select: {
+      id: true,
+      name: true,
+      contactPerson: true,
+      email: true,
+      phone: true,
+      invoiceStreet: true,
+      invoiceZip: true,
+      invoiceCity: true,
+      invoiceCountry: true,
+    },
+    orderBy: { name: 'asc' },
+  })
 }
 
 function optTrim(value: string | undefined): string | null {
