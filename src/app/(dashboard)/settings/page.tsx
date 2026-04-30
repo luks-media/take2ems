@@ -31,15 +31,13 @@ export default async function SettingsPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>
 }) {
-  let appVersion = process.env.npm_package_version || ''
-  if (!appVersion) {
-    try {
-      const packageJsonRaw = await readFile(join(process.cwd(), 'package.json'), 'utf-8')
-      const parsed = JSON.parse(packageJsonRaw) as { version?: string }
-      appVersion = parsed.version || ''
-    } catch {
-      appVersion = ''
-    }
+  let appVersion = ''
+  try {
+    const packageJsonRaw = await readFile(join(process.cwd(), 'package.json'), 'utf-8')
+    const parsed = JSON.parse(packageJsonRaw) as { version?: string }
+    appVersion = parsed.version || ''
+  } catch {
+    appVersion = process.env.npm_package_version || ''
   }
   if (!appVersion) {
     appVersion = '1.0.0'
