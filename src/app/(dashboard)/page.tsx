@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { autoActivateDueRentals, updateRentalStatus } from '@/actions/rental'
+import { getSessionUserFromCookies } from '@/lib/session'
+import { UserTodoBoard } from '@/components/dashboard/UserTodoBoard'
 import {
   AlertTriangle,
   CalendarCheck2,
@@ -19,16 +21,24 @@ import {
 } from 'lucide-react'
 
 const listRowLink =
-  'flex items-center justify-between p-4 transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-muted/50'
+  'flex items-center justify-between p-4 transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-muted/40'
 
 const quickIconLink =
-  'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-foreground transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-muted active:opacity-90'
+  'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border/80 bg-background/80 text-foreground shadow-sm transition-all duration-200 ease-out motion-reduce:transition-none hover:-translate-y-0.5 hover:bg-muted/70 hover:shadow-md active:opacity-90'
 
 const quickTooltipBubble =
-  'pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100 motion-reduce:transition-none'
+  'pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover/95 px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100 motion-reduce:transition-none'
 
 const kpiCardClass =
-  'p-6 rounded-xl hover:shadow-md motion-reduce:hover:shadow-sm'
+  'rounded-2xl border border-border/70 bg-card/90 p-6 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0'
+
+function rentalStatusAccentClass(status: string) {
+  if (status === 'ACTIVE') return 'border-l-4 border-l-blue-500/80 dark:border-l-blue-400/80 pl-3'
+  if (status === 'PENDING') return 'border-l-4 border-l-amber-500/80 dark:border-l-amber-400/80 pl-3'
+  if (status === 'RETURNED') return 'border-l-4 border-l-emerald-500/80 dark:border-l-emerald-400/80 pl-3'
+  if (status === 'CANCELLED') return 'border-l-4 border-l-rose-500/80 dark:border-l-rose-400/80 pl-3'
+  return 'border-l-4 border-l-muted-foreground/30 pl-3'
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -52,6 +62,7 @@ export default async function Home() {
   }
 
   const [
+    sessionUser,
     totalEquipment,
     totalUsers,
     totalInstances,
@@ -64,6 +75,7 @@ export default async function Home() {
     blockedInstancesAgg,
     recentRentals
   ] = await Promise.all([
+    getSessionUserFromCookies(),
     prisma.equipment.count(),
     prisma.user.count(),
     prisma.equipmentInstance.count(),
@@ -110,7 +122,7 @@ export default async function Home() {
       take: 5,
       orderBy: { createdAt: 'desc' },
       include: { items: true }
-    })
+    }),
   ])
 
   const liveActiveBlockedInstances = liveActiveBlockedAgg._sum?.quantity ?? 0
@@ -118,23 +130,60 @@ export default async function Home() {
   const availableInstances = Math.max(rentableInstances - blockedInstances, 0)
   const utilization = rentableInstances > 0 ? Math.round((blockedInstances / rentableInstances) * 100) : 0
   const monthlyRevenue = monthlyRevenueAgg._sum?.totalPrice ?? 0
+  const equipmentValue = (await prisma.equipment.findMany({
+    select: { quantity: true, purchasePrice: true },
+  })).reduce((sum, item) => sum + (item.purchasePrice ?? 0) * item.quantity, 0)
+  const myTodos = sessionUser
+    ? await prisma.todo.findMany({
+        where: {
+          OR: [{ userId: sessionUser.id }, { shares: { some: { userId: sessionUser.id } } }],
+        },
+        orderBy: [{ done: 'asc' }, { createdAt: 'desc' }],
+        take: 20,
+        select: {
+          id: true,
+          title: true,
+          done: true,
+          userId: true,
+          user: { select: { name: true } },
+          shares: { include: { user: { select: { name: true } } } },
+        },
+      })
+    : []
+  const todoShareTargets = sessionUser
+    ? await prisma.user.findMany({
+        where: { id: { not: sessionUser.id } },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      })
+    : []
+  const currency = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto space-y-4 p-8 pt-6">
-      <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto space-y-6 p-8 pt-6">
+      <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-muted/40 to-background p-6 shadow-sm">
+        <div className="flex items-center justify-between space-y-2">
+          <h2 className="text-3xl font-semibold tracking-tight">Dashboard</h2>
+        </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className={kpiCardClass}>
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Package2 className="h-4 w-4" />Equipment</h2>
           <p className="text-3xl font-bold mt-2">{totalEquipment}</p>
           <p className="text-xs text-muted-foreground mt-1">{totalInstances} Instanzen</p>
+          <p className="text-xs text-muted-foreground mt-1">{currency.format(equipmentValue)} Gesamtwert</p>
         </Card>
         <Link
           href="/rentals"
           className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <Card className={cn(kpiCardClass, 'h-full cursor-pointer')}>
+          <Card
+            className={cn(
+              kpiCardClass,
+              'h-full cursor-pointer',
+              activeRentalCount > 0 && 'border-blue-200/70 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/20'
+            )}
+          >
             <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <CalendarCheck2 className="h-4 w-4" />
               Aktive Ausleihen
@@ -145,7 +194,16 @@ export default async function Home() {
             </p>
           </Card>
         </Link>
-        <Card className={kpiCardClass}>
+        <Card
+          className={cn(
+            kpiCardClass,
+            availableInstances <= 0
+              ? 'border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20'
+              : availableInstances < Math.max(3, Math.ceil(rentableInstances * 0.1))
+                ? 'border-amber-200/70 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20'
+                : ''
+          )}
+        >
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><Wrench className="h-4 w-4" />Verfügbar</h2>
           <p className="text-3xl font-bold mt-2">{availableInstances}</p>
           <p className="text-xs text-muted-foreground mt-1">{utilization}% Auslastung</p>
@@ -155,7 +213,7 @@ export default async function Home() {
           <p className="text-3xl font-bold mt-2">{monthlyRevenue.toFixed(2)} €</p>
           <p className="text-xs text-muted-foreground mt-1">{format(monthStart, 'MM.yyyy')}</p>
         </Card>
-        <Card className={kpiCardClass}>
+        <Card className={cn(kpiCardClass, overdueRentals.length > 0 && 'border-rose-200/70 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20')}>
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Überfällig</h2>
           <p className="text-3xl font-bold mt-2">{overdueRentals.length}</p>
           <p className="text-xs text-muted-foreground mt-1">{totalUsers} Benutzer im System</p>
@@ -164,19 +222,23 @@ export default async function Home() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div>
-          <h3 className="text-xl font-bold tracking-tight mb-4">Letzte Ausleihen</h3>
+          <h3 className="mb-4 text-xl font-semibold tracking-tight">Letzte Ausleihen</h3>
           {recentRentals.length === 0 ? (
-            <Card className="p-8 rounded-xl text-center text-muted-foreground">
+            <Card className="rounded-2xl p-8 text-center text-muted-foreground shadow-sm">
               Bisher keine Ausleihen vorhanden.
             </Card>
           ) : (
-            <Card className="overflow-hidden p-0 rounded-xl">
+            <Card className="overflow-hidden rounded-2xl border border-border/70 p-0 shadow-sm">
               <div className="flex flex-col">
                 {recentRentals.map((rental, i) => (
                   <Link 
                     key={rental.id} 
                     href={`/rentals/${rental.id}`}
-                    className={cn(listRowLink, i !== recentRentals.length - 1 ? 'border-b' : '')}
+                    className={cn(
+                      listRowLink,
+                      rentalStatusAccentClass(rental.status),
+                      i !== recentRentals.length - 1 ? 'border-b' : ''
+                    )}
                   >
                     <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">
@@ -229,18 +291,22 @@ export default async function Home() {
         </div>
 
         <div>
-          <h3 className="text-xl font-bold tracking-tight mb-4">Überfällige Rückgaben</h3>
+          <h3 className="mb-4 text-xl font-semibold tracking-tight">Überfällige Rückgaben</h3>
           {overdueRentals.length === 0 ? (
-            <Card className="p-8 rounded-xl text-center text-muted-foreground">
+            <Card className="rounded-2xl p-8 text-center text-muted-foreground shadow-sm">
               Keine überfälligen Ausleihen.
             </Card>
           ) : (
-            <Card className="overflow-hidden p-0 rounded-xl">
+            <Card className="overflow-hidden rounded-2xl border border-border/70 border-l-4 border-l-rose-500/80 p-0 shadow-sm dark:border-l-rose-400/80">
               <div className="flex flex-col">
                 {overdueRentals.map((rental, i) => (
                   <div
                     key={rental.id}
-                    className={cn(listRowLink, i !== overdueRentals.length - 1 ? 'border-b' : '')}
+                    className={cn(
+                      listRowLink,
+                      'border-l-4 border-l-rose-500/80 dark:border-l-rose-400/80 pl-3',
+                      i !== overdueRentals.length - 1 ? 'border-b' : ''
+                    )}
                   >
                     <div className="min-w-0">
                       <Link href={`/rentals/${rental.id}`} className="block">
@@ -271,7 +337,19 @@ export default async function Home() {
         </div>
       </div>
 
-      <Card className="p-4 rounded-md">
+      <UserTodoBoard
+        initialTodos={myTodos.map((todo) => ({
+          id: todo.id,
+          title: todo.title,
+          done: todo.done,
+          ownerName: todo.user.name,
+          isOwner: todo.userId === sessionUser?.id,
+          sharedWithNames: todo.shares.map((s) => s.user.name),
+        }))}
+        shareTargets={todoShareTargets}
+      />
+
+      <Card className="rounded-2xl border border-border/70 p-4 shadow-sm">
         <div className="text-sm text-muted-foreground mb-3">Schnellzugriff</div>
         <div className="flex flex-wrap items-end gap-3 pt-1">
           <div className="group relative inline-flex">

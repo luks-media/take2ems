@@ -1,6 +1,4 @@
 import Link from 'next/link'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
 import prisma from '@/lib/prisma'
 import { cn } from '@/lib/utils'
 import { SettingsActivityLogListClient, type ActivityLogListEntry } from './SettingsActivityLogListClient'
@@ -11,6 +9,7 @@ type ActivityEntry = {
   id: string
   summary: string
   message: string
+  actorName: string
   href: string | null
   changedAt: Date
   type: Exclude<ActivityType, 'all'>
@@ -92,11 +91,12 @@ async function getRecentActivity(): Promise<ActivityEntry[]> {
             : row.entityType === 'user'
               ? '/users'
               : null
-    const actorPrefix = row.actor?.name ? `${row.actor.name}: ` : 'System: '
+    const actorName = row.actor?.name ?? 'System'
     return {
       id: row.id,
       summary: summarizeChange(row.entityType, row.action),
-      message: `${actorPrefix}${row.message}`,
+      message: row.message,
+      actorName,
       href,
       changedAt: row.createdAt,
       type,
@@ -194,6 +194,7 @@ export async function SettingsActivityLogCard({
                 id: entry.id,
                 summary: entry.summary,
                 message: entry.message,
+                actorName: entry.actorName,
                 href: entry.href,
                 changedAtIso: entry.changedAt.toISOString(),
                 detailsText: entry.detailsText,

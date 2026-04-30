@@ -88,12 +88,16 @@ export async function createRental(data: {
   /** Ausgewählter Kunde aus der Datenbank (optional). */
   customerId?: string | null
   customerName?: string
+  borrowerNote?: string | null
   /** Gesetzt: Bearbeiter (Nutzer). `null` = kein Bearbeiter. `undefined` = Fallback: aktuell angemeldeter Nutzer. */
   borrowerUserId?: string | null
   startDate: Date
   endDate: Date
   totalDays: number
   totalPrice: number
+  discountType?: 'percent' | 'fixed'
+  discountValue?: number
+  discountAmount?: number
   status?: string
   items: { equipmentId: string; quantity: number; dailyRate: number; totalPrice: number; note?: string | null }[]
 }) {
@@ -251,15 +255,29 @@ export async function createRental(data: {
       }
     }
 
+    const borrowerNote =
+      typeof data.borrowerNote === 'string' && data.borrowerNote.trim().length > 0
+        ? data.borrowerNote.trim().slice(0, 4000)
+        : null
+
     const createdRental = await tx.rental.create({
       data: {
-        customerId: resolvedCustomerId,
+        customer: resolvedCustomerId ? { connect: { id: resolvedCustomerId } } : undefined,
         customerName: resolvedCustomerName,
-        userId: resolvedBorrowerId === undefined ? undefined : resolvedBorrowerId,
+        borrowerNote,
+        user:
+          resolvedBorrowerId === undefined
+            ? undefined
+            : resolvedBorrowerId
+              ? { connect: { id: resolvedBorrowerId } }
+              : undefined,
         startDate: data.startDate,
         endDate: data.endDate,
         totalDays: data.totalDays,
         totalPrice: data.totalPrice,
+        discountType: data.discountType,
+        discountValue: data.discountValue ?? 0,
+        discountAmount: data.discountAmount ?? 0,
         status: initialStatus,
         items: {
           create: itemsToCreate
@@ -314,6 +332,225 @@ export async function createRental(data: {
   return rental
 }
 
+export async function updateRentalFromCart(data: {
+  rentalId: string
+  customerId?: string | null
+  customerName?: string
+  borrowerNote?: string | null
+  borrowerUserId?: string | null
+  startDate: Date
+  endDate: Date
+  totalDays: number
+  totalPrice: number
+  discountType?: 'percent' | 'fixed'
+  discountValue?: number
+  discountAmount?: number
+  status?: string
+  items: { equipmentId: string; quantity: number; dailyRate: number; totalPrice: number; note?: string | null }[]
+}) {
+  const sessionUser = await requireSessionUser()
+  const existing = await prisma.rental.findUnique({
+    where: { id: data.rentalId },
+    include: { items: { include: { instances: true } } },
+  })
+  if (!existing) throw new Error('Ausleihe nicht gefunden.')
+  if (existing.status === 'RETURNED' || existing.status === 'CANCELLED') {
+    throw new Error('Zurückgegebene oder stornierte Ausleihen können nicht mehr vollständig bearbeitet werden.')
+  }
+
+  let resolvedBorrowerId: string | null | undefined
+  if (sessionUser.role !== 'ADMIN' && sessionUser.role !== 'SUPER_ADMIN') {
+    resolvedBorrowerId = sessionUser.id
+  } else if (data.borrowerUserId === null) {
+    resolvedBorrowerId = null
+  } else if (typeof data.borrowerUserId === 'string' && data.borrowerUserId.length > 0) {
+    resolvedBorrowerId = data.borrowerUserId
+  } else {
+    resolvedBorrowerId = sessionUser.id
+  }
+
+  const nextStatus =
+    data.status && CREATE_RENTAL_STATUSES.has(data.status) ? data.status : existing.status
+  const reserveInventory = rentalStatusReservesInventory(nextStatus)
+
+  await prisma.$transaction(async (tx) => {
+    const oldInstanceIds = existing.items.flatMap((item) => item.instances.map((inst) => inst.id))
+    if (oldInstanceIds.length > 0) {
+      await tx.equipmentInstance.updateMany({
+        where: { id: { in: oldInstanceIds } },
+        data: { status: 'AVAILABLE' },
+      })
+    }
+
+    const itemsToCreate: Prisma.RentalItemCreateWithoutRentalInput[] = []
+    for (const item of data.items) {
+      const equipment = await tx.equipment.findUnique({
+        where: { id: item.equipmentId },
+        select: {
+          id: true,
+          name: true,
+          ownershipLots: {
+            select: {
+              id: true,
+              label: true,
+              units: true,
+              shares: { select: { ownerId: true, fraction: true } },
+            },
+          },
+        },
+      })
+      if (!equipment) throw new Error(`Equipment nicht gefunden: ${item.equipmentId}`)
+
+      const itemNote =
+        typeof item.note === 'string' && item.note.trim().length > 0
+          ? item.note.trim().slice(0, 2000)
+          : null
+
+      if (!reserveInventory) {
+        itemsToCreate.push({
+          equipment: { connect: { id: item.equipmentId } },
+          quantity: item.quantity,
+          dailyRate: item.dailyRate,
+          totalPrice: item.totalPrice,
+          note: itemNote,
+        })
+        continue
+      }
+
+      const availableInstances = await tx.equipmentInstance.findMany({
+        where: {
+          equipmentId: item.equipmentId,
+          status: { notIn: ['BROKEN', 'MAINTENANCE'] },
+          rentalItems: {
+            none: {
+              rental: {
+                id: { not: existing.id },
+                status: { in: ['PENDING', 'ACTIVE'] },
+                OR: [
+                  { startDate: { lte: data.endDate }, endDate: { gte: data.startDate } },
+                  { endDate: { lt: new Date() } },
+                ],
+              },
+            },
+          },
+        },
+        take: item.quantity,
+      })
+
+      if (availableInstances.length < item.quantity) {
+        throw new Error(`Nicht genug verfügbare Exemplare für Equipment: ${equipment.name}.`)
+      }
+
+      const ownerSharesForItem = buildOwnerSharesFromLots({
+        rentalItemTotalPrice: item.totalPrice,
+        rentedQuantity: item.quantity,
+        lots: equipment.ownershipLots,
+        borrowerUserId: resolvedBorrowerId ?? undefined,
+      })
+
+      itemsToCreate.push({
+        equipment: { connect: { id: item.equipmentId } },
+        quantity: item.quantity,
+        dailyRate: item.dailyRate,
+        totalPrice: item.totalPrice,
+        note: itemNote,
+        instances: { connect: availableInstances.map((inst) => ({ id: inst.id })) },
+        ownerShares: {
+          create: ownerSharesForItem.map((s) => ({
+            ownerId: s.ownerId,
+            ownedUnitsAtRental: s.ownedUnitsAtRental,
+            ownerFraction: s.ownerFraction,
+            allocatedQuantity: s.allocatedQuantity,
+            shareAmount: s.shareAmount,
+          })),
+        },
+      })
+    }
+
+    const trimmedCustomerName = data.customerName?.trim() || null
+    let resolvedCustomerId: string | null = null
+    let resolvedCustomerName: string | null = null
+    if (data.customerId) {
+      const cust = await tx.customer.findUnique({ where: { id: data.customerId } })
+      if (!cust) throw new Error('Kunde nicht gefunden.')
+      resolvedCustomerId = cust.id
+      resolvedCustomerName = cust.name
+    } else if (trimmedCustomerName) {
+      const existingRows = await tx.$queryRaw<Array<{ id: string; name: string }>>(
+        Prisma.sql`SELECT id, name FROM Customer WHERE LOWER(name) = LOWER(${trimmedCustomerName}) LIMIT 1`
+      )
+      const found = existingRows[0]
+      if (found) {
+        resolvedCustomerId = found.id
+        resolvedCustomerName = found.name
+      } else {
+        const created = await tx.customer.create({ data: { name: trimmedCustomerName } })
+        resolvedCustomerId = created.id
+        resolvedCustomerName = created.name
+      }
+    }
+
+    const borrowerNote =
+      typeof data.borrowerNote === 'string' && data.borrowerNote.trim().length > 0
+        ? data.borrowerNote.trim().slice(0, 4000)
+        : null
+
+    const updatedRental = await tx.rental.update({
+      where: { id: existing.id },
+      data: {
+        customer: resolvedCustomerId ? { connect: { id: resolvedCustomerId } } : { disconnect: true },
+        customerName: resolvedCustomerName,
+        borrowerNote,
+        user:
+          resolvedBorrowerId === undefined
+            ? undefined
+            : resolvedBorrowerId
+              ? { connect: { id: resolvedBorrowerId } }
+              : { disconnect: true },
+        startDate: data.startDate,
+        endDate: data.endDate,
+        totalDays: data.totalDays,
+        totalPrice: data.totalPrice,
+        discountType: data.discountType,
+        discountValue: data.discountValue ?? 0,
+        discountAmount: data.discountAmount ?? 0,
+        status: nextStatus,
+        items: {
+          deleteMany: {},
+          create: itemsToCreate,
+        },
+      },
+      include: {
+        items: { include: { instances: true } },
+      },
+    })
+
+    const nextInstanceIds = updatedRental.items.flatMap((item) => item.instances.map((i) => i.id))
+    if (nextInstanceIds.length > 0) {
+      await tx.equipmentInstance.updateMany({
+        where: { id: { in: nextInstanceIds } },
+        data: { status: nextStatus === 'ACTIVE' ? 'IN_USE' : 'AVAILABLE' },
+      })
+    }
+  })
+
+  revalidatePath('/rentals')
+  revalidatePath(`/rentals/${existing.id}`)
+  revalidatePath('/equipment')
+  revalidatePath('/users')
+  revalidatePath('/customers')
+  await syncRentalCalendarAfterStatusChangeLazy(existing.id)
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'rental',
+    entityId: existing.id,
+    action: 'update',
+    message: 'Ausleihe vollständig über Warenkorbansicht bearbeitet',
+    details: { status: nextStatus, totalPrice: data.totalPrice, itemCount: data.items.length },
+  })
+  return getRentalById(existing.id)
+}
+
 export async function getRentals() {
   await requireSessionUser()
   await autoActivateDueRentalsCore()
@@ -326,7 +563,7 @@ export async function getRentals() {
         include: {
           equipment: true,
           ownerShares: {
-            include: { owner: true }
+            include: { owner: true, settlementOwner: true }
           }
         }
       }
@@ -348,7 +585,7 @@ export async function getRentalById(id: string) {
         include: {
           equipment: true,
           ownerShares: {
-            include: { owner: true }
+            include: { owner: true, settlementOwner: true }
           }
         }
       }
@@ -481,30 +718,53 @@ export async function updateRentalStatus(id: string, status: string) {
     })
   } else {
     if (isNonBindingRentalStatus(status) && rentalStatusReservesInventory(prev.status)) {
-      throw new Error(
-        'Von „Ausstehend“ oder „Aktiv“ zurück auf einen Entwurf ist nicht vorgesehen. Nutze „Storniert“ oder lege eine neue Ausleihe an.'
-      )
-    }
+      await prisma.$transaction(async (tx) => {
+        const oldInstanceIds = prev.items.flatMap((item) => item.instances.map((inst) => inst.id))
 
-    const rental = await prisma.rental.update({
-      where: { id },
-      data: { status },
-      include: { items: { include: { instances: true } } },
-    })
+        for (const item of prev.items) {
+          await tx.rentalItem.update({
+            where: { id: item.id },
+            data: {
+              instances: { set: [] },
+              ownerShares: { deleteMany: {} },
+            },
+          })
+        }
 
-    const instanceIds = rental.items.flatMap((item) => item.instances.map((i) => i.id))
+        if (oldInstanceIds.length > 0) {
+          await tx.equipmentInstance.updateMany({
+            where: { id: { in: oldInstanceIds } },
+            data: { status: 'AVAILABLE' },
+          })
+        }
 
-    if (instanceIds.length > 0) {
-      if (status === 'RETURNED' || status === 'CANCELLED') {
-        await prisma.equipmentInstance.updateMany({
-          where: { id: { in: instanceIds } },
-          data: { status: 'AVAILABLE' },
+        await tx.rental.update({
+          where: { id },
+          data: { status },
         })
-      } else if (status === 'ACTIVE') {
-        await prisma.equipmentInstance.updateMany({
-          where: { id: { in: instanceIds } },
-          data: { status: 'IN_USE' },
-        })
+      })
+    } else {
+
+      const rental = await prisma.rental.update({
+        where: { id },
+        data: { status },
+        include: { items: { include: { instances: true } } },
+      })
+
+      const instanceIds = rental.items.flatMap((item) => item.instances.map((i) => i.id))
+
+      if (instanceIds.length > 0) {
+        if (status === 'RETURNED' || status === 'CANCELLED') {
+          await prisma.equipmentInstance.updateMany({
+            where: { id: { in: instanceIds } },
+            data: { status: 'AVAILABLE' },
+          })
+        } else if (status === 'ACTIVE') {
+          await prisma.equipmentInstance.updateMany({
+            where: { id: { in: instanceIds } },
+            data: { status: 'IN_USE' },
+          })
+        }
       }
     }
   }
@@ -785,6 +1045,85 @@ export async function updateRentalItemNote(itemId: string, note: string | null) 
   })
 }
 
+export async function getSettlementTransferUsers() {
+  await requireSessionUser()
+  return prisma.user.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  })
+}
+
+export async function reassignOwnerShareForSettlement(data: {
+  shareId: string
+  targetOwnerId: string | null
+  reason?: string | null
+}) {
+  const sessionUser = await requireAdmin()
+  const shareId = data.shareId?.trim()
+  if (!shareId) {
+    throw new Error('Ungültige Anteils-ID.')
+  }
+
+  const current = await prisma.rentalItemOwnerShare.findUnique({
+    where: { id: shareId },
+    include: {
+      owner: { select: { id: true, name: true } },
+      settlementOwner: { select: { id: true, name: true } },
+      rentalItem: { select: { rentalId: true } },
+    },
+  })
+  if (!current) {
+    throw new Error('Anteil nicht gefunden.')
+  }
+
+  const rawTarget = data.targetOwnerId?.trim() || null
+  const targetOwnerId = rawTarget === current.ownerId ? null : rawTarget
+  const trimmedReason = data.reason?.trim() || null
+
+  let targetOwner: { id: string; name: string } | null = null
+  if (targetOwnerId) {
+    targetOwner = await prisma.user.findUnique({
+      where: { id: targetOwnerId },
+      select: { id: true, name: true },
+    })
+    if (!targetOwner) {
+      throw new Error('Ziel-Owner nicht gefunden.')
+    }
+  }
+
+  await prisma.rentalItemOwnerShare.update({
+    where: { id: current.id },
+    data: {
+      settlementOwnerId: targetOwnerId,
+      settlementReason: trimmedReason,
+    },
+  })
+
+  revalidatePath('/settlements')
+  revalidatePath(`/rentals/${current.rentalItem.rentalId}`)
+  revalidatePath('/rentals')
+  await writeActivityLog({
+    actorId: sessionUser.id,
+    entityType: 'rental',
+    entityId: current.rentalItem.rentalId,
+    action: 'update',
+    message: 'Owner-Anteil für Abrechnung umgebucht',
+    details: {
+      shareId: current.id,
+      amount: current.shareAmount,
+      originalOwnerId: current.owner.id,
+      originalOwnerName: current.owner.name,
+      fromSettlementOwnerId: current.settlementOwner?.id ?? null,
+      fromSettlementOwnerName: current.settlementOwner?.name ?? null,
+      toSettlementOwnerId: targetOwner?.id ?? null,
+      toSettlementOwnerName: targetOwner?.name ?? null,
+      reason: trimmedReason,
+    },
+  })
+
+  return { success: true as const }
+}
+
 /**
  * Verknüpft eine Ausleihe nachträglich mit einem Kunden aus der Datenbank (Name muss exakt passen, Groß-/Kleinschreibung egal).
  */
@@ -976,6 +1315,7 @@ export async function getOwnerSettlement(startDate?: Date, endDate?: Date) {
     where: whereClause,
     include: {
       owner: true,
+      settlementOwner: true,
       rentalItem: {
         include: {
           equipment: true,
@@ -988,20 +1328,29 @@ export async function getOwnerSettlement(startDate?: Date, endDate?: Date) {
 
   const totalsByOwner: Record<string, { ownerId: string; ownerName: string; totalAmount: number; shareCount: number }> = {}
   for (const share of shares) {
-    if (!totalsByOwner[share.ownerId]) {
-      totalsByOwner[share.ownerId] = {
-        ownerId: share.ownerId,
-        ownerName: share.owner.name,
+    const effectiveOwnerId = share.settlementOwner?.id ?? share.ownerId
+    const effectiveOwnerName = share.settlementOwner?.name ?? share.owner.name
+    if (!totalsByOwner[effectiveOwnerId]) {
+      totalsByOwner[effectiveOwnerId] = {
+        ownerId: effectiveOwnerId,
+        ownerName: effectiveOwnerName,
         totalAmount: 0,
         shareCount: 0
       }
     }
-    totalsByOwner[share.ownerId].totalAmount += share.shareAmount
-    totalsByOwner[share.ownerId].shareCount += 1
+    totalsByOwner[effectiveOwnerId].totalAmount += share.shareAmount
+    totalsByOwner[effectiveOwnerId].shareCount += 1
   }
+
+  const details = shares.map((share) => ({
+    ...share,
+    owner: share.settlementOwner ?? share.owner,
+    originalOwner: share.owner,
+    isReassigned: Boolean(share.settlementOwnerId),
+  }))
 
   return {
     totals: Object.values(totalsByOwner).sort((a, b) => b.totalAmount - a.totalAmount),
-    details: shares
+    details
   }
 }

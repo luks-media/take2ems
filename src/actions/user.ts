@@ -27,6 +27,17 @@ const userSelect = {
           id: true,
         },
       },
+      ownershipLots: {
+        select: {
+          units: true,
+          shares: {
+            select: {
+              ownerId: true,
+              fraction: true,
+            },
+          },
+        },
+      },
     },
     orderBy: { name: 'asc' as const },
   },

@@ -30,7 +30,8 @@ import {
   linkRentalToCustomerByName,
   updateRentalCustomer,
   updateRentalItemNote,
-  updateRentalItems,
+  getSettlementTransferUsers,
+  reassignOwnerShareForSettlement,
 } from '@/actions/rental'
 import { searchCustomers, type CustomerSearchHit } from '@/actions/customer'
 import { Equipment, Rental, RentalItem, RentalItemOwnerShare, User } from '@prisma/client'
@@ -88,12 +89,17 @@ function RentalItemNoteField({
 }
 
 type RentalWithItems = Rental & {
+  discountAmount?: number | null
+  discountType?: string | null
+  discountValue?: number | null
   user: { id: string; name: string; email: string } | null
   customer: { id: string; name: string } | null
   items: (RentalItem & {
     equipment: Equipment
     ownerShares: (RentalItemOwnerShare & {
       owner: User
+      settlementOwner: User | null
+      settlementReason: string | null
     })[]
   })[]
 }
@@ -101,13 +107,44 @@ type RentalWithItems = Rental & {
 export function RentalDetailClient({
   rental,
   canDelete,
-  equipmentOptions,
+  canManageSettlement,
 }: {
   rental: RentalWithItems
   canDelete: boolean
-  equipmentOptions: { id: string; name: string; equipmentCode: string }[]
+  canManageSettlement: boolean
 }) {
   const router = useRouter()
+  const baseTotal = rental.items.reduce((sum, item) => sum + item.dailyRate * item.quantity * rental.totalDays, 0)
+  const discountAmount = Math.max(
+    0,
+    Number(((rental.discountAmount ?? baseTotal - rental.totalPrice) || 0).toFixed(2))
+  )
+  const discountPercent = baseTotal > 0 ? Number(((discountAmount / baseTotal) * 100).toFixed(2)) : 0
+  const ownerShareTotals = (() => {
+    const totals = new Map<
+      string,
+      { ownerId: string; ownerName: string; amount: number; allocatedQuantity: number }
+    >()
+    for (const item of rental.items) {
+      for (const share of item.ownerShares) {
+        const effectiveOwnerId = share.settlementOwner?.id ?? share.ownerId
+        const effectiveOwnerName = share.settlementOwner?.name ?? share.owner.name
+        const existing = totals.get(effectiveOwnerId)
+        if (existing) {
+          existing.amount += share.shareAmount
+          existing.allocatedQuantity += share.allocatedQuantity
+        } else {
+          totals.set(effectiveOwnerId, {
+            ownerId: effectiveOwnerId,
+            ownerName: effectiveOwnerName,
+            amount: share.shareAmount,
+            allocatedQuantity: share.allocatedQuantity,
+          })
+        }
+      }
+    }
+    return Array.from(totals.values()).sort((a, b) => b.amount - a.amount)
+  })()
   const [isUpdating, setIsUpdating] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isLinkingCustomer, setIsLinkingCustomer] = useState(false)
@@ -120,17 +157,12 @@ export function RentalDetailClient({
   const [custSuggestOpen, setCustSuggestOpen] = useState(false)
   const [custSaving, setCustSaving] = useState(false)
   const [custFormErr, setCustFormErr] = useState<string | null>(null)
-  const [editingItems, setEditingItems] = useState(false)
-  const [itemDrafts, setItemDrafts] = useState<Array<{ equipmentId: string; quantity: number }>>([])
-  const [itemFormErr, setItemFormErr] = useState<string | null>(null)
-  const [itemSaving, setItemSaving] = useState(false)
+  const [transferUsers, setTransferUsers] = useState<Array<{ id: string; name: string }>>([])
+  const [shareTargetById, setShareTargetById] = useState<Record<string, string>>({})
+  const [shareSavingById, setShareSavingById] = useState<Record<string, boolean>>({})
+  const [showSettlementReassignUi, setShowSettlementReassignUi] = useState(false)
   const deleteDeniedMessage = 'Nur Administratoren oder der Ausleiher dürfen löschen.'
   const canEditRentalItems = rental.status !== 'RETURNED' && rental.status !== 'CANCELLED'
-
-  useEffect(() => {
-    if (!editingItems) return
-    setItemDrafts(rental.items.map((item) => ({ equipmentId: item.equipmentId, quantity: item.quantity })))
-  }, [editingItems, rental.items])
 
   function openCustomerEdit() {
     setCustName(rental.customerName || '')
@@ -159,6 +191,17 @@ export function RentalDetailClient({
     }, 200)
     return () => window.clearTimeout(t)
   }, [custName, editingCustomer])
+
+  useEffect(() => {
+    if (!canManageSettlement) return
+    void getSettlementTransferUsers()
+      .then((rows) => {
+        setTransferUsers(rows)
+      })
+      .catch(() => {
+        setTransferUsers([])
+      })
+  }, [canManageSettlement])
 
   async function handleSaveCustomer() {
     setCustFormErr(null)
@@ -218,39 +261,22 @@ export function RentalDetailClient({
     }
   }
 
-  function openItemsEdit() {
-    setItemFormErr(null)
-    setItemDrafts(rental.items.map((item) => ({ equipmentId: item.equipmentId, quantity: item.quantity })))
-    setEditingItems(true)
-  }
-
-  function cancelItemsEdit() {
-    setEditingItems(false)
-    setItemFormErr(null)
-  }
-
-  async function saveItemsEdit() {
-    setItemFormErr(null)
-    setItemSaving(true)
+  async function handleSettlementReassign(shareId: string, fallbackOwnerId: string) {
+    const raw = shareTargetById[shareId]
+    const target = raw && raw !== '__ORIGINAL__' ? raw : fallbackOwnerId
+    setShareSavingById((prev) => ({ ...prev, [shareId]: true }))
     try {
-      await updateRentalItems({
-        rentalId: rental.id,
-        items: itemDrafts.map((d) => ({
-          equipmentId: d.equipmentId,
-          quantity: Math.max(1, Math.floor(d.quantity || 1)),
-        })),
+      await reassignOwnerShareForSettlement({
+        shareId,
+        targetOwnerId: target,
       })
-      setEditingItems(false)
       router.refresh()
-    } catch (e: unknown) {
-      setItemFormErr(e instanceof Error ? e.message : 'Positionen konnten nicht gespeichert werden.')
+    } catch (error) {
+      console.error(error)
+      alert(error instanceof Error ? error.message : 'Umbuchung fehlgeschlagen.')
     } finally {
-      setItemSaving(false)
+      setShareSavingById((prev) => ({ ...prev, [shareId]: false }))
     }
-  }
-
-  function updateDraft(index: number, patch: Partial<{ equipmentId: string; quantity: number }>) {
-    setItemDrafts((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   }
 
   return (
@@ -381,8 +407,14 @@ export function RentalDetailClient({
             </p>
           </div>
           <div>
-            <h3 className="text-sm font-medium text-muted-foreground mb-1">Gesamtpreis</h3>
-            <p className="text-lg font-bold">{rental.totalPrice.toFixed(2)} €</p>
+            <h3 className="text-sm font-medium text-muted-foreground mb-1">Preisübersicht</h3>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">Originalpreis: {baseTotal.toFixed(2)} €</p>
+              <p className="text-sm text-muted-foreground">
+                Rabatt: -{discountAmount.toFixed(2)} € ({discountPercent.toFixed(2)}%)
+              </p>
+              <p className="text-lg font-bold">Gesamtpreis: {rental.totalPrice.toFixed(2)} €</p>
+            </div>
           </div>
         </div>
 
@@ -418,37 +450,18 @@ export function RentalDetailClient({
       <Separator />
 
       <div>
-        <h3 className="text-lg font-semibold mb-4">Ausgeliehenes Equipment</h3>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {editingItems ? (
-            <>
-              <Button type="button" size="sm" onClick={saveItemsEdit} disabled={itemSaving}>
-                {itemSaving ? 'Speichern…' : 'Positionen speichern'}
-              </Button>
-              <Button type="button" size="sm" variant="outline" onClick={cancelItemsEdit} disabled={itemSaving}>
-                Abbrechen
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => setItemDrafts((prev) => [...prev, { equipmentId: '', quantity: 1 }])}
-                disabled={itemSaving}
-              >
-                Artikel hinzufügen
-              </Button>
-            </>
-          ) : (
-            <Button type="button" size="sm" variant="outline" onClick={openItemsEdit} disabled={!canEditRentalItems}>
-              Artikel & Anzahl bearbeiten
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold">Ausgeliehenes Equipment</h3>
+          {canManageSettlement ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setShowSettlementReassignUi((prev) => !prev)}
+            >
+              {showSettlementReassignUi ? 'Umbuchung ausblenden' : 'Umbuchung einblenden'}
             </Button>
-          )}
-          {!canEditRentalItems && (
-            <p className="w-full text-xs text-muted-foreground">
-              Bei zurückgegebenen oder stornierten Ausleihen sind Artikel/Anzahl gesperrt.
-            </p>
-          )}
-          {itemFormErr && <p className="w-full text-sm text-destructive">{itemFormErr}</p>}
+          ) : null}
         </div>
         <div className="rounded-md border bg-card text-card-foreground shadow-sm">
           <Table>
@@ -464,108 +477,91 @@ export function RentalDetailClient({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(editingItems ? itemDrafts : rental.items).map((item, idx) => (
-                <Fragment key={editingItems ? `draft-${idx}` : item.id}>
+              {rental.items.map((item) => (
+                <Fragment key={item.id}>
                   <TableRow>
-                    <TableCell className="font-mono text-xs">
-                      {editingItems
-                        ? equipmentOptions.find((opt) => opt.id === item.equipmentId)?.equipmentCode || '—'
-                        : item.equipment.equipmentCode}
-                    </TableCell>
+                    <TableCell className="font-mono text-xs">{item.equipment.equipmentCode}</TableCell>
                     <TableCell className="font-medium">
-                      {editingItems ? (
-                        <div className="flex items-center gap-2">
-                          <select
-                            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={item.equipmentId}
-                            onChange={(e) => updateDraft(idx, { equipmentId: e.target.value })}
-                            disabled={itemSaving}
-                          >
-                            <option value="">Artikel wählen…</option>
-                            {equipmentOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.equipmentCode} - {opt.name}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setItemDrafts((prev) => prev.filter((_, i) => i !== idx))}
-                            disabled={itemSaving || itemDrafts.length <= 1}
-                          >
-                            Entfernen
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-2">
-                          <EquipmentCategoryIcon
-                            category={item.equipment.category}
-                            className="mt-0.5 h-4 w-4 text-muted-foreground"
-                          />
-                          <div className="min-w-0">
-                            <div>{item.equipment.name}</div>
-                            {item.equipment.internalNote?.trim() && (
-                              <div className="mt-1 text-xs font-normal italic text-muted-foreground whitespace-pre-wrap">
-                                Artikel-Notiz: {item.equipment.internalNote}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingItems ? (
-                        <Input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={item.quantity}
-                          onChange={(e) =>
-                            updateDraft(idx, {
-                              quantity: Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 1,
-                            })
-                          }
-                          disabled={itemSaving}
-                          className="w-24"
+                      <div className="flex items-start gap-2">
+                        <EquipmentCategoryIcon
+                          category={item.equipment.category}
+                          className="mt-0.5 h-4 w-4 text-muted-foreground"
                         />
-                      ) : (
-                        item.quantity
-                      )}
-                    </TableCell>
-                    <TableCell className="align-top">
-                      {editingItems ? (
-                        <p className="text-xs text-muted-foreground">Notiz direkt im Feld speichern (on blur).</p>
-                      ) : (
-                        <RentalItemNoteField itemId={item.id} initialNote={item.note} />
-                      )}
-                    </TableCell>
-                    <TableCell>{editingItems ? '—' : item.equipment.serialNumber || '-'}</TableCell>
-                    <TableCell>{editingItems ? '—' : `${item.dailyRate.toFixed(2)} €`}</TableCell>
-                    <TableCell>{editingItems ? '—' : `${item.totalPrice.toFixed(2)} €`}</TableCell>
-                  </TableRow>
-                  {!editingItems && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="bg-muted/20">
-                        <div className="space-y-1 text-sm">
-                          <div className="font-medium">Owner-Anteile</div>
-                          {item.ownerShares.length === 0 ? (
-                            <div className="text-xs text-muted-foreground">Keine Anteile gespeichert.</div>
-                          ) : (
-                            item.ownerShares.map((share) => (
-                              <div key={share.id} className="flex items-center justify-between">
-                                <span>
-                                  {share.owner.name} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
-                                </span>
-                                <span className="font-medium">{share.shareAmount.toFixed(2)} €</span>
-                              </div>
-                            ))
+                        <div className="min-w-0">
+                          <div>{item.equipment.name}</div>
+                          {item.equipment.internalNote?.trim() && (
+                            <div className="mt-1 text-xs font-normal italic text-muted-foreground whitespace-pre-wrap">
+                              Artikel-Notiz: {item.equipment.internalNote}
+                            </div>
                           )}
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{item.quantity}</TableCell>
+                    <TableCell className="align-top">
+                      <RentalItemNoteField itemId={item.id} initialNote={item.note} />
+                    </TableCell>
+                    <TableCell>{item.equipment.serialNumber || '-'}</TableCell>
+                    <TableCell>{`${item.dailyRate.toFixed(2)} €`}</TableCell>
+                    <TableCell>{`${item.totalPrice.toFixed(2)} €`}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell colSpan={7} className="bg-muted/20">
+                      <div className="space-y-1 text-sm">
+                        <div className="font-medium">Owner-Anteile</div>
+                        {item.ownerShares.length === 0 ? (
+                          <div className="text-xs text-muted-foreground">Keine Anteile gespeichert.</div>
+                        ) : (
+                          item.ownerShares.map((share) => (
+                            <div key={share.id} className="flex items-center justify-between">
+                              <div className="min-w-0">
+                                <div>
+                                  {share.owner.name} ({share.ownedUnitsAtRental} Stk, {(share.ownerFraction * 100).toFixed(1)}%)
+                                  {share.settlementOwner ? (
+                                    <span className="ml-2 text-xs text-amber-700">
+                                      Abrechnung an: {share.settlementOwner.name}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {canManageSettlement && showSettlementReassignUi ? (
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <Select
+                                      value={shareTargetById[share.id] ?? (share.settlementOwner?.id || '__ORIGINAL__')}
+                                      onValueChange={(value) =>
+                                        setShareTargetById((prev) => ({ ...prev, [share.id]: value }))
+                                      }
+                                    >
+                                      <SelectTrigger className="h-8 w-[220px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__ORIGINAL__">Original behalten ({share.owner.name})</SelectItem>
+                                        {transferUsers.map((user) => (
+                                          <SelectItem key={user.id} value={user.id}>
+                                            {user.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={Boolean(shareSavingById[share.id])}
+                                      onClick={() => void handleSettlementReassign(share.id, share.ownerId)}
+                                    >
+                                      {shareSavingById[share.id] ? 'Speichere…' : 'Umbuchen'}
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <span className="ml-3 shrink-0 font-medium">{share.shareAmount.toFixed(2)} €</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 </Fragment>
               ))}
             </TableBody>
@@ -573,27 +569,71 @@ export function RentalDetailClient({
         </div>
       </div>
 
-      <div className="flex justify-between pt-4">
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Owner-Anteile gesamt</h3>
+        <div className="rounded-md border bg-card text-card-foreground shadow-sm">
+          {ownerShareTotals.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">
+              Keine Owner-Anteile für diese Ausleihe vorhanden.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Owner</TableHead>
+                  <TableHead>Zugeordnete Menge</TableHead>
+                  <TableHead>Anteil an Ausleihe</TableHead>
+                  <TableHead>Gesamtbetrag</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ownerShareTotals.map((owner) => {
+                  const percent =
+                    rental.totalPrice > 0 ? ((owner.amount / rental.totalPrice) * 100).toFixed(1) : '0.0'
+                  return (
+                    <TableRow key={owner.ownerId}>
+                      <TableCell className="font-medium">{owner.ownerName}</TableCell>
+                      <TableCell>{owner.allocatedQuantity.toFixed(2)}</TableCell>
+                      <TableCell>{percent} %</TableCell>
+                      <TableCell className="font-medium">{owner.amount.toFixed(2)} €</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-between gap-2 pt-4">
         <Button variant="outline" asChild>
-          <a href={`/api/rentals/${rental.id}/checklist`} target="_blank" rel="noopener noreferrer">
+          <a
+            href={`/api/rentals/${rental.id}/checklist`}
+            target={`rental_checklist_${rental.id}`}
+          >
             <FileDown className="mr-2 h-4 w-4" />
             PDF Ausleihliste
           </a>
         </Button>
-        <Button
-          variant={canDelete ? 'destructive' : 'outline'}
-          className={!canDelete ? 'opacity-60' : undefined}
-          onClick={() => {
-            if (!canDelete) {
-              alert(deleteDeniedMessage)
-              return
-            }
-            void handleDelete()
-          }}
-          disabled={isDeleting || isUpdating}
-        >
-          {isDeleting ? 'Löschen...' : 'Ausleihe löschen'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" asChild disabled={!canEditRentalItems}>
+            <Link href={`/rentals/new?edit=${rental.id}`}>Ausleihe bearbeiten</Link>
+          </Button>
+          <Button
+            variant={canDelete ? 'destructive' : 'outline'}
+            className={!canDelete ? 'opacity-60' : undefined}
+            onClick={() => {
+              if (!canDelete) {
+                alert(deleteDeniedMessage)
+                return
+              }
+              void handleDelete()
+            }}
+            disabled={isDeleting || isUpdating}
+          >
+            {isDeleting ? 'Löschen...' : 'Ausleihe löschen'}
+          </Button>
+        </div>
       </div>
     </div>
   )

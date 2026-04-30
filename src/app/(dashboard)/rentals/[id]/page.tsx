@@ -1,5 +1,4 @@
 import { getRentalById } from '@/actions/rental'
-import { getEquipment } from '@/actions/equipment'
 import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
@@ -8,15 +7,17 @@ import { RentalDetailClient } from '@/components/rentals/RentalDetailClient'
 import { getSessionUserFromCookies } from '@/lib/session'
 
 export default async function RentalDetailPage({ params }: { params: { id: string } }) {
-  const [rental, sessionUser, equipment] = await Promise.all([
+  const [rental, sessionUser] = await Promise.all([
     getRentalById(params.id),
     getSessionUserFromCookies(),
-    getEquipment(),
   ])
   const canDelete = Boolean(
     sessionUser &&
     rental &&
     (sessionUser.role === 'ADMIN' || sessionUser.role === 'SUPER_ADMIN' || sessionUser.id === rental.userId)
+  )
+  const canManageSettlement = Boolean(
+    sessionUser && (sessionUser.role === 'ADMIN' || sessionUser.role === 'SUPER_ADMIN')
   )
 
   if (!rental) {
@@ -38,11 +39,7 @@ export default async function RentalDetailPage({ params }: { params: { id: strin
         <RentalDetailClient
           rental={rental}
           canDelete={canDelete}
-          equipmentOptions={equipment.map((item) => ({
-            id: item.id,
-            name: item.name,
-            equipmentCode: item.equipmentCode,
-          }))}
+          canManageSettlement={canManageSettlement}
         />
       </div>
     </div>

@@ -67,6 +67,14 @@ Danach wie gewohnt `prisma migrate deploy` nutzen.
 
 ## Changelog (Kurz)
 
+### v1.2.0
+
+- Ausleihen können wieder vollständig über die Warenkorbansicht bearbeitet werden (`/rentals/new?edit=...`), inkl. Positionen, Zeitraum, Kunde/Bearbeiter und Rabatt.
+- Detailansicht erweitert: Preisübersicht mit Originalpreis, Rabatt und Gesamtpreis; Rabatt wird als EUR und Prozent dargestellt.
+- Statuswechsel verbessert: Rückweg von `Aktiv`/`Ausstehend` auf `Entwurf` wieder möglich (Reservierungen werden sauber freigegeben).
+- PDF-Ausleihliste zeigt jetzt ebenfalls die Preisübersicht inkl. Rabatt.
+- **Bekannter Bug (offen):** In manchen Browser-/Dev-Setups öffnet `PDF Ausleihliste` weiterhin mehrfach Tabs (z. B. 3x), trotz clientseitiger Gegenmaßnahmen. Später separat fixen.
+
 ### v1.1.0
 
 - Neues Aktivitäts-Log in `Settings` mit Detailfenster pro Eintrag (inkl. Filter und Redaction sensibler Daten).

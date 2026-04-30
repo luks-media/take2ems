@@ -38,6 +38,22 @@ export default async function UsersPage({
   const isAdmin = sessionUser?.role === 'ADMIN' || sessionUser?.role === 'SUPER_ADMIN'
   const isSuperAdmin = sessionUser?.role === 'SUPER_ADMIN'
   const eur = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
+  const equipmentTotalByUser = new Map(
+    users.map((user) => [
+      user.id,
+      user.equipment.reduce((sum, eq) => {
+        const unitPrice = eq.purchasePrice ?? 0
+        if (unitPrice <= 0) return sum
+        let ownedValue = 0
+        for (const lot of eq.ownershipLots) {
+          const myFraction = lot.shares.find((s) => s.ownerId === user.id)?.fraction ?? 0
+          if (myFraction <= 0) continue
+          ownedValue += unitPrice * lot.units * myFraction
+        }
+        return sum + ownedValue
+      }, 0),
+    ])
+  )
   const adminCount = users.filter((u) => u.role === 'ADMIN' || u.role === 'SUPER_ADMIN').length
   const memberCount = users.filter((u) => u.role === 'USER').length
 
@@ -85,6 +101,7 @@ export default async function UsersPage({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {users.map((user) => {
             const n = balanceByUser[user.id]?.netSaldo ?? 0
+            const equipmentTotal = equipmentTotalByUser.get(user.id) ?? 0
             const saldoCls =
               n > 0.005
                 ? 'text-green-700 dark:text-green-400'
@@ -109,6 +126,10 @@ export default async function UsersPage({
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="text-muted-foreground">Lagerorte</span>
                     <span className="font-medium tabular-nums">{user.locations.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="text-muted-foreground">Equipmentwert</span>
+                    <span className="font-medium tabular-nums">{eur.format(equipmentTotal)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Registriert {format(new Date(user.createdAt), 'dd.MM.yyyy')}

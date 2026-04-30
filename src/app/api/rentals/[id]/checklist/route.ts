@@ -81,7 +81,20 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
   const borrowerEmail = escapeHtml(rental.user?.email || '-')
   const period = `${formatDate(rental.startDate)} - ${formatDate(rental.endDate)} (${rental.totalDays} Tage)`
   const periodEscaped = escapeHtml(period)
+  const borrowerNote = rental.borrowerNote?.trim() || ''
+  const borrowerNoteHtml = borrowerNote
+    ? `<div class="note-text">${escapeHtml(borrowerNote).replaceAll('\n', '<br />')}</div>`
+    : ''
   const totalItems = rental.items.reduce((sum, item) => sum + item.quantity, 0)
+  const originalPrice = rental.items.reduce(
+    (sum, item) => sum + item.dailyRate * item.quantity * rental.totalDays,
+    0
+  )
+  const discountAmount = Math.max(
+    0,
+    Number(((rental.discountAmount ?? originalPrice - rental.totalPrice) || 0).toFixed(2))
+  )
+  const discountPercent = originalPrice > 0 ? Number(((discountAmount / originalPrice) * 100).toFixed(2)) : 0
   const locationGroups = groupItemsByLocation(rental.items)
 
   const subtitleLine = (branding.companyLine?.trim() || 'Take2EMS').trim()
@@ -124,9 +137,9 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
           <td>${item.quantity}</td>
           <td>${formatCurrency(item.dailyRate)}</td>
           <td>${formatCurrency(item.totalPrice)}</td>
-          <td><span class="checkbox"></span></td>
-          <td><span class="checkbox"></span></td>
-          <td><span class="checkbox"></span></td>
+          <td><span class="pdf-checkbox"></span></td>
+          <td><span class="pdf-checkbox"></span></td>
+          <td><span class="pdf-checkbox"></span></td>
         </tr>`
         })
         .join('')
@@ -233,12 +246,20 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
         font-size: 13px;
         font-weight: bold;
       }
-      .checkbox {
+      .pdf-checkbox {
         display: inline-block;
         width: 12px;
         height: 12px;
         border: 1.5px solid #333;
         border-radius: 2px;
+        background: #fff;
+        vertical-align: middle;
+      }
+      @media print {
+        .pdf-checkbox {
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
       }
       .notes {
         margin-top: 14px;
@@ -254,6 +275,11 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
         border-bottom: 1px solid #aaa;
         height: 18px;
         margin-bottom: 6px;
+      }
+      .note-text {
+        margin-top: 8px;
+        font-size: 12px;
+        white-space: normal;
       }
       .signatures {
         margin-top: 16px;
@@ -286,6 +312,27 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
         margin-top: 10px;
         font-size: 10px;
         color: #666;
+      }
+      .price-box {
+        margin-top: 10px;
+        border: 1px solid #d8d8d8;
+        border-radius: 6px;
+        padding: 8px;
+        width: 280px;
+        margin-left: auto;
+      }
+      .price-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+        margin-bottom: 2px;
+      }
+      .price-row.total {
+        margin-top: 5px;
+        padding-top: 5px;
+        border-top: 1px solid #d8d8d8;
+        font-weight: bold;
       }
     </style>
   </head>
@@ -341,10 +388,24 @@ function buildChecklistHtml(rental: NonNullable<RentalForChecklist>, branding: P
       </tbody>
     </table>
 
-    <div class="total-row">Gesamtpreis: ${escapeHtml(formatCurrency(rental.totalPrice))}</div>
+    <div class="price-box">
+      <div class="price-row">
+        <span>Originalpreis</span>
+        <span>${escapeHtml(formatCurrency(originalPrice))}</span>
+      </div>
+      <div class="price-row">
+        <span>Rabatt</span>
+        <span>- ${escapeHtml(formatCurrency(discountAmount))} (${discountPercent.toFixed(2)}%)</span>
+      </div>
+      <div class="price-row total">
+        <span>Gesamtpreis</span>
+        <span>${escapeHtml(formatCurrency(rental.totalPrice))}</span>
+      </div>
+    </div>
 
     <div class="notes">
       <strong>Notizen für den Ausleiher</strong>
+      ${borrowerNoteHtml}
       <div class="lines">
         <div class="line"></div>
         <div class="line"></div>
@@ -428,7 +489,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${buildFilename(rental)}"`,
+        'Content-Disposition': `inline; filename="${buildFilename(rental)}"`,
         'Cache-Control': 'no-store',
       },
     })

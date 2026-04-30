@@ -10,8 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { createLocation, deleteLocation } from '@/actions/location'
-import { Trash2, MapPin } from 'lucide-react'
+import { createLocation, deleteLocation, renameLocation } from '@/actions/location'
+import { Trash2, MapPin, Pencil, Check, X } from 'lucide-react'
 
 type UserWithLocations = {
   id: string
@@ -26,6 +26,9 @@ export function UserLocationsDialog({ user }: { user: UserWithLocations }) {
   const [open, setOpen] = useState(false)
   const [newLocName, setNewLocName] = useState('')
   const [isAdding, setIsAdding] = useState(false)
+  const [editingLocId, setEditingLocId] = useState<string | null>(null)
+  const [editingLocName, setEditingLocName] = useState('')
+  const [isRenaming, setIsRenaming] = useState(false)
 
   const handleAdd = async () => {
     if (!newLocName.trim()) return
@@ -38,6 +41,26 @@ export function UserLocationsDialog({ user }: { user: UserWithLocations }) {
   const handleDelete = async (locId: string) => {
     if (!confirm('Möchtest du diesen Lagerort wirklich löschen?')) return
     await deleteLocation(locId)
+  }
+
+  const openRename = (locId: string, currentName: string) => {
+    setEditingLocId(locId)
+    setEditingLocName(currentName)
+  }
+
+  const cancelRename = () => {
+    setEditingLocId(null)
+    setEditingLocName('')
+  }
+
+  const handleRename = async () => {
+    if (!editingLocId) return
+    const trimmed = editingLocName.trim()
+    if (!trimmed) return
+    setIsRenaming(true)
+    await renameLocation(editingLocId, trimmed)
+    setIsRenaming(false)
+    cancelRename()
   }
 
   return (
@@ -67,10 +90,57 @@ export function UserLocationsDialog({ user }: { user: UserWithLocations }) {
             <ul className="space-y-2 mt-4">
               {user.locations.map(loc => (
                 <li key={loc.id} className="flex items-center justify-between p-3 border rounded-md bg-muted/20">
-                  <span>{loc.name}</span>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(loc.id)} className="text-destructive hover:bg-destructive/10">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {editingLocId === loc.id ? (
+                    <>
+                      <Input
+                        value={editingLocName}
+                        onChange={(e) => setEditingLocName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void handleRename()
+                          if (e.key === 'Escape') cancelRename()
+                        }}
+                        className="mr-2"
+                        autoFocus
+                      />
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={isRenaming || !editingLocName.trim()}
+                          onClick={() => void handleRename()}
+                          title="Speichern"
+                        >
+                          <Check className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={cancelRename} title="Abbrechen">
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span>{loc.name}</span>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openRename(loc.id, loc.name)}
+                          title="Umbenennen"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(loc.id)}
+                          className="text-destructive hover:bg-destructive/10"
+                          title="Löschen"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

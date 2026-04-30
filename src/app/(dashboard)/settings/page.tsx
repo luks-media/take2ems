@@ -10,7 +10,7 @@ import { getMailSetupSummary } from '@/lib/mail'
 import { getAppSettings } from '@/lib/app-settings'
 import { getAppOrigin } from '@/lib/app-origin'
 import { getGoogleCalendarEnvSummary } from '@/lib/google-calendar/summary'
-import { Euro, Package, Users, ChevronRight } from 'lucide-react'
+import { Euro, Users, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 
 async function getSessionUser() {
@@ -48,10 +48,6 @@ export default async function SettingsPage({
   ])
   const gcalEnv = getGoogleCalendarEnvSummary()
 
-  const totalEquipmentValue = equipment.reduce(
-    (sum, item) => sum + (item.purchasePrice || 0) * item.quantity,
-    0
-  )
   const totalDailyRentalPrice = equipment.reduce(
     (sum, item) => sum + (item.dailyRate || 0) * item.quantity,
     0
@@ -83,15 +79,6 @@ export default async function SettingsPage({
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-xl border bg-card text-card-foreground shadow">
-          <div className="p-6 space-y-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Package className="h-4 w-4" />
-              Gesamter Equipmentwert
-            </div>
-            <p className="text-2xl font-bold">{currency.format(totalEquipmentValue)}</p>
-          </div>
-        </div>
         <div className="rounded-xl border bg-card text-card-foreground shadow">
           <div className="p-6 space-y-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">

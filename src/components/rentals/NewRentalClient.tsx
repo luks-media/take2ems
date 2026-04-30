@@ -33,7 +33,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { createRental } from '@/actions/rental'
+import { createRental, updateRentalFromCart } from '@/actions/rental'
 import { searchCustomers, type CustomerSearchHit } from '@/actions/customer'
 import { EquipmentCategoryIcon } from '@/lib/equipment-category-icon'
 
@@ -54,6 +54,20 @@ interface Props {
   defaultBorrowerId: string | null
   canSelectBorrower: boolean
   appPrefs: NewRentalAppPrefs
+  editRentalId?: string
+  initialData?: {
+    startDate: string
+    endDate: string
+    customerName: string
+    customerId: string | null
+    borrowerNote: string
+    borrowerUserId: string | null
+    status: 'PENDING' | 'ACTIVE' | 'DRAFT'
+    discountType: DiscountType
+    discountInput: string
+    discountAmount: number
+    items: { equipmentId: string; quantity: number; note: string }[]
+  }
 }
 
 interface CartItem {
@@ -76,6 +90,8 @@ export default function NewRentalClient({
   defaultBorrowerId,
   canSelectBorrower,
   appPrefs,
+  editRentalId,
+  initialData,
 }: Props) {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
@@ -88,19 +104,22 @@ export default function NewRentalClient({
     from: Date | undefined
     to: Date | undefined
   }>({
-    from: undefined,
-    to: undefined
+    from: initialData?.startDate ? new Date(initialData.startDate) : undefined,
+    to: initialData?.endDate ? new Date(initialData.endDate) : undefined,
   })
   
-  const [customerName, setCustomerName] = useState('')
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [customerName, setCustomerName] = useState(initialData?.customerName || '')
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(initialData?.customerId ?? null)
+  const [borrowerNote, setBorrowerNote] = useState(initialData?.borrowerNote || '')
   const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSearchHit[]>([])
   const [customerSuggestOpen, setCustomerSuggestOpen] = useState(false)
-  const [borrowerUserId, setBorrowerUserId] = useState<string>(
-    defaultBorrowerId || BORROWER_NONE
-  )
-  const [discountType, setDiscountType] = useState<DiscountType>('percent')
-  const [discountInput, setDiscountInput] = useState('')
+  const [borrowerUserId, setBorrowerUserId] = useState<string>(() => {
+    if (initialData?.borrowerUserId) return initialData.borrowerUserId
+    if (initialData?.borrowerUserId === null) return BORROWER_NONE
+    return defaultBorrowerId || BORROWER_NONE
+  })
+  const [discountType, setDiscountType] = useState<DiscountType>(initialData?.discountType ?? 'percent')
+  const [discountInput, setDiscountInput] = useState(initialData?.discountInput ?? '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   /** Passend-dazu-Panel: Suchfeld nutzbar → standardmäßig aufgeklappt. */
@@ -108,6 +127,21 @@ export default function NewRentalClient({
   const [recommendationListSearch, setRecommendationListSearch] = useState('')
 
   const hasSelectedRange = Boolean(dateRange.from && dateRange.to)
+
+  useEffect(() => {
+    if (!initialData?.items?.length) return
+    const seeded: CartItem[] = []
+    for (const row of initialData.items) {
+      const eq = equipment.find((e) => e.id === row.equipmentId)
+      if (!eq) continue
+      seeded.push({
+        equipment: eq,
+        quantity: Math.max(1, Math.floor(row.quantity || 1)),
+        note: row.note || '',
+      })
+    }
+    setCart(seeded)
+  }, [initialData, equipment])
 
   const availableQuantityMap = useMemo(() => {
     const map: Record<string, number> = {}
@@ -444,9 +478,10 @@ export default function NewRentalClient({
     }
     setIsSubmitting(true)
     try {
-      await createRental({
+      const payload = {
         customerId: selectedCustomerId ?? undefined,
         customerName: customerName || undefined,
+        borrowerNote: borrowerNote || undefined,
         borrowerUserId: canSelectBorrower
           ? borrowerUserId === BORROWER_NONE
             ? null
@@ -456,6 +491,9 @@ export default function NewRentalClient({
         endDate: dateRange.to,
         totalDays,
         totalPrice,
+        discountType,
+        discountValue: sanitizedDiscountValue,
+        discountAmount,
         status: rentalStatus,
         items: cartPriceBreakdown.map((row) => {
           const cartLine = cart.find((c) => c.equipment.id === row.equipmentId)
@@ -468,9 +506,15 @@ export default function NewRentalClient({
             note: rawNote.length > 0 ? rawNote.slice(0, 2000) : undefined,
           }
         }),
-      })
-      
-      router.push('/rentals')
+      }
+
+      if (editRentalId) {
+        await updateRentalFromCart({ rentalId: editRentalId, ...payload })
+        router.push(`/rentals/${editRentalId}`)
+      } else {
+        await createRental(payload)
+        router.push('/rentals')
+      }
       router.refresh()
     } catch (error: any) {
       console.error("Failed to create rental", error)
@@ -647,6 +691,22 @@ export default function NewRentalClient({
               Vorschläge aus der Kundendatenbank. Beim Speichern wird die Ausleihe mit dem Kunden verknüpft (Auswahl
               oder gleicher Name); neue Namen legen einen Kunden an.
             </p>
+          </div>
+
+          <div className="grid gap-2 md:col-span-2">
+            <Label htmlFor="borrower-note">Notiz für Ausleiher (optional)</Label>
+            <textarea
+              id="borrower-note"
+              className={cn(
+                'min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+                'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+              )}
+              placeholder="Wird u. a. auf der PDF-Ausleihliste unter „Notizen für den Ausleiher“ angezeigt."
+              maxLength={4000}
+              rows={3}
+              value={borrowerNote}
+              onChange={(e) => setBorrowerNote(e.target.value)}
+            />
           </div>
 
           {appPrefs.discountAllowed && (
@@ -1059,10 +1119,10 @@ export default function NewRentalClient({
           <Button
             className="w-full"
             size="lg"
-            onClick={() => handleSaveWithStatus(appPrefs.defaultRentalStatus)}
+            onClick={() => handleSaveWithStatus(initialData?.status ?? appPrefs.defaultRentalStatus)}
             disabled={saveDisabledBase}
           >
-            {isSubmitting ? 'Wird gespeichert…' : 'Ausleihe speichern'}
+            {isSubmitting ? 'Wird gespeichert…' : editRentalId ? 'Ausleihe aktualisieren' : 'Ausleihe speichern'}
           </Button>
           <Button
             type="button"

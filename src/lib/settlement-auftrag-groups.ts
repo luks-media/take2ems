@@ -3,6 +3,8 @@ export type SettlementShareDetail = {
   id: string
   shareAmount: number
   owner: { name: string }
+  originalOwner?: { name: string }
+  isReassigned?: boolean
   rentalItem: {
     rentalId: string
     equipment: { name: string }

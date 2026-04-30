@@ -71,7 +71,10 @@ model User {
   equipment Equipment[] @relation("EquipmentOwners")
   ownerships EquipmentOwnership[]
   lotShares  EquipmentOwnershipLotShare[]
-  ownerShares RentalItemOwnerShare[]
+  ownerShares RentalItemOwnerShare[] @relation("OwnerShareOwner")
+  settlementReceiverShares RentalItemOwnerShare[] @relation("SettlementReceiver")
+  todos     Todo[]
+  sharedTodos TodoShare[]
   locations Location[]
   activityLogs ActivityLog[]
 }
@@ -106,10 +109,15 @@ model Rental {
   customerId            String?
   customer              Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerName          String?
+  /// Freie Notiz für den Ausleiher (wird u. a. auf der PDF-Checkliste angezeigt)
+  borrowerNote          String?
   startDate             DateTime
   endDate               DateTime
   totalDays             Int
   totalPrice            Float
+  discountType          String?      // percent | fixed
+  discountValue         Float?       // eingegebener Wert (Prozent oder EUR)
+  discountAmount        Float?       // tatsächlich abgezogener Betrag in EUR
   status                String       @default("PENDING") // PENDING, ACTIVE, RETURNED, CANCELLED, DRAFT (legacy: QUOTE)
   googleCalendarEventId String?
   createdAt             DateTime     @default(now())
@@ -175,17 +183,21 @@ model RentalItemOwnerShare {
   id                 String     @id @default(cuid())
   rentalItemId       String
   ownerId            String
+  settlementOwnerId  String?
+  settlementReason   String?
   /// Anteil der vermieteten Menge (kann gebrochen sein, z. B. 0.5 bei 50 %-Los)
   ownedUnitsAtRental Float
   ownerFraction      Float
   allocatedQuantity  Float
   shareAmount        Float
   rentalItem         RentalItem @relation(fields: [rentalItemId], references: [id], onDelete: Cascade)
-  owner              User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner              User       @relation("OwnerShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  settlementOwner    User?      @relation("SettlementReceiver", fields: [settlementOwnerId], references: [id], onDelete: SetNull)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
   @@unique([rentalItemId, ownerId])
+  @@index([settlementOwnerId])
 }
 
 /// Single-row app configuration (id must stay "singleton").
@@ -226,4 +238,29 @@ model ActivityLog {
   @@index([createdAt])
   @@index([entityType, createdAt])
   @@index([actorId, createdAt])
+}
+
+model Todo {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shares    TodoShare[]
+
+  @@index([userId, done, createdAt])
+}
+
+model TodoShare {
+  id        String   @id @default(cuid())
+  todoId    String
+  userId    String
+  createdAt DateTime @default(now())
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([todoId, userId])
+  @@index([userId, createdAt])
 }

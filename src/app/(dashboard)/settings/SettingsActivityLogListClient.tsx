@@ -16,6 +16,7 @@ export type ActivityLogListEntry = {
   id: string
   summary: string
   message: string
+  actorName: string
   href: string | null
   changedAtIso: string
   detailsText: string | null
@@ -34,7 +35,10 @@ export function SettingsActivityLogListClient({ entries }: { entries: ActivityLo
                   type="button"
                   className="flex w-full items-center justify-between gap-4 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
                 >
-                  <span className="min-w-0 truncate">{entry.summary}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{entry.summary}</span>
+                    <span className="block text-xs text-muted-foreground">Von: {entry.actorName}</span>
+                  </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {format(changedAt, 'dd.MM.yyyy HH:mm', { locale: de })}
                   </span>
@@ -49,6 +53,10 @@ export function SettingsActivityLogListClient({ entries }: { entries: ActivityLo
                 </DialogHeader>
 
                 <div className="space-y-3 text-sm">
+                  <div>
+                    <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Ausgeführt von</div>
+                    <div>{entry.actorName}</div>
+                  </div>
                   <div>
                     <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Änderung</div>
                     <div>{entry.message}</div>

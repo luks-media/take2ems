@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma'
 import { getEquipment } from '@/actions/equipment'
-import { getRentals } from '@/actions/rental'
+import { getRentalById, getRentals } from '@/actions/rental'
 import NewRentalClient from '@/components/rentals/NewRentalClient'
 import { getAppSettings } from '@/lib/app-settings'
 import { rentalStatusReservesInventory } from '@/lib/rental-statuses'
@@ -8,7 +8,11 @@ import { getSessionUserFromCookies } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-export default async function NewRentalPage() {
+export default async function NewRentalPage({
+  searchParams,
+}: {
+  searchParams?: { edit?: string }
+}) {
   const [equipment, rentals, appSettings, allBorrowerChoices, sessionUser] = await Promise.all([
     getEquipment(),
     getRentals(),
@@ -74,12 +78,41 @@ export default async function NewRentalPage() {
 
   const defaultRentalStatus =
     appSettings.rentalDefaultStatus === 'ACTIVE' ? 'ACTIVE' : 'PENDING'
+  const editRentalId = searchParams?.edit?.trim() || null
+  const rentalToEdit = editRentalId ? await getRentalById(editRentalId) : null
+  const initialData =
+    rentalToEdit && rentalToEdit.status !== 'RETURNED' && rentalToEdit.status !== 'CANCELLED'
+      ? {
+          startDate: rentalToEdit.startDate.toISOString(),
+          endDate: rentalToEdit.endDate.toISOString(),
+          customerName: rentalToEdit.customerName ?? '',
+          customerId: rentalToEdit.customerId ?? null,
+          borrowerNote: rentalToEdit.borrowerNote ?? '',
+          borrowerUserId: rentalToEdit.userId ?? null,
+          status:
+            rentalToEdit.status === 'ACTIVE' || rentalToEdit.status === 'DRAFT'
+              ? rentalToEdit.status
+              : 'PENDING',
+          discountType: rentalToEdit.discountType === 'percent' ? 'percent' as const : 'fixed' as const,
+          discountInput: String(rentalToEdit.discountValue ?? 0),
+          discountAmount: rentalToEdit.discountAmount ?? 0,
+          items: rentalToEdit.items.map((item) => ({
+            equipmentId: item.equipmentId,
+            quantity: item.quantity,
+            note: item.note ?? '',
+          })),
+        }
+      : undefined
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="mb-4 shrink-0">
-        <h2 className="text-3xl font-bold tracking-tight">Neue Ausleihe</h2>
-        <p className="text-muted-foreground">Wähle zuerst das Datum aus, um die Verfügbarkeiten zu prüfen.</p>
+        <h2 className="text-3xl font-bold tracking-tight">
+          {editRentalId ? 'Ausleihe vollständig bearbeiten' : 'Neue Ausleihe'}
+        </h2>
+        <p className="text-muted-foreground">
+          Wähle zuerst das Datum aus, um die Verfügbarkeiten zu prüfen.
+        </p>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
         <NewRentalClient 
@@ -95,6 +128,8 @@ export default async function NewRentalPage() {
             discountAllowed: appSettings.rentalDiscountAllowed,
             minRentalDays: appSettings.rentalMinDays,
           }}
+          editRentalId={editRentalId ?? undefined}
+          initialData={initialData}
         />
       </div>
     </div>

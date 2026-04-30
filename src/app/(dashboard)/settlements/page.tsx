@@ -404,7 +404,12 @@ export default async function SettlementsPage({
                           </span>
                         </TableCell>
                         <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                          {detail.rentalItem.equipment.name}
+                          <div className="truncate">{detail.rentalItem.equipment.name}</div>
+                          {detail.isReassigned && detail.originalOwner ? (
+                            <div className="mt-0.5 text-xs text-amber-700">
+                              Umbuchung: {detail.originalOwner.name} -&gt; {detail.owner.name}
+                            </div>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {eur(detail.shareAmount)}
