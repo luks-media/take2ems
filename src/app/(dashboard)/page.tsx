@@ -104,7 +104,7 @@ export default async function Home() {
     prisma.rental.aggregate({
       _sum: { totalPrice: true },
       where: {
-        status: { not: 'CANCELLED' },
+        status: { in: ['PENDING', 'ACTIVE', 'RETURNED'] },
         createdAt: { gte: monthStart, lte: monthEnd }
       }
     }),

@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.2 - 2026-04-30
+
+### Fixed
+- Dashboard Umsatz (Monat): Entwürfe (`DRAFT`) werden nicht mehr in die Umsatzsumme eingerechnet.
+
 ## v1.2.1 - 2026-04-30
 
 ### Fixed
